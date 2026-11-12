@@ -89,6 +89,13 @@ $env:AUTH_LOCAL_SCOPES = @(
     "read_next_action", "create_applicant", "update_applicant", "create_application", "upload_document",
     "agents:execute", "los.read", "los.write", "los.dedupe.read", "los.credit.underwrite"
 ) -join " "
+# Dedupe works out of the box: its data sources answer from the demo data (agents/dedupe/conf/mifin_demo.yaml)
+# unless backend\.env or this window already chose a source. The backend refuses "demo" in production.
+foreach ($source in @("MIFIN_PROVIDER", "LMS_PROVIDER", "RCU_PROVIDER", "COLLATERAL_PROVIDER")) {
+    $inEnvFile = (Test-Path (Join-Path $backend ".env")) -and
+        (Select-String -Path (Join-Path $backend ".env") -Pattern "^\s*$source\s*=\s*\S" -Quiet)
+    if (-not [Environment]::GetEnvironmentVariable($source) -and -not $inEnvFile) { Set-Item "env:$source" "demo" }
+}
 $env:LOS_API = "http://127.0.0.1:$BackendPort"
 $env:FOS_API = $(if ($NoLos) { "" } else { "http://127.0.0.1:$LosPort" })
 
