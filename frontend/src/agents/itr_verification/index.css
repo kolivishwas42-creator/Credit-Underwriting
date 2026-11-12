@@ -1,0 +1,109 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Ink & Ember design tokens (DESIGN.md) as space-separated RGB channels so Tailwind can apply opacity.
+   Light by default; the dark set follows the system and is authored, not inverted. */
+:root {
+  color-scheme: light dark;
+  --c-ink: 23 37 84;
+  --c-ink-hover: 30 58 138;
+  --c-on-ink: 255 255 255;
+  --c-accent: 30 64 175;
+  --c-accent-hover: 30 58 138;
+  --c-accent-subtle: 219 234 254;
+  --c-accent-tint: 239 246 255;
+  --c-accent-text: 30 64 175;
+  --c-accent-border: 191 219 254;
+  --c-link: 79 90 199;
+  --c-info-subtle: 238 240 252;
+  --c-info-text: 65 72 168;
+  --c-info-border: 207 212 245;
+  --c-canvas: 247 247 248;
+  --c-surface: 255 255 255;
+  --c-raised: 244 244 245;
+  --c-border: 234 234 236;
+  --c-border-strong: 212 212 216;
+  --c-divider: 240 240 241;
+  --c-text: 24 24 27;
+  --c-text-2: 113 113 122;
+  --c-text-3: 161 161 170;
+  --c-icon: 63 63 70;
+  --c-success: 30 142 62;
+  --c-success-subtle: 231 244 235;
+  --c-success-text: 23 115 52;
+  --c-success-border: 197 230 207;
+  --c-warning: 180 83 9;
+  --c-warning-subtle: 245 231 221;
+  --c-warning-text: 146 64 14;
+  --c-warning-border: 242 220 174;
+  --c-error: 209 67 67;
+  --c-error-hover: 182 56 56;
+  --c-error-subtle: 253 236 236;
+  --c-error-text: 176 53 53;
+  --c-error-border: 245 198 198;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --c-ink: 250 250 250;
+    --c-ink-hover: 255 255 255;
+    --c-on-ink: 24 24 27;
+    --c-accent: 96 165 250;
+    --c-accent-hover: 147 197 253;
+    --c-accent-subtle: 23 37 84;
+    --c-accent-tint: 15 29 58;
+    --c-accent-text: 147 197 253;
+    --c-accent-border: 90 46 30;
+    --c-link: 139 148 232;
+    --c-info-subtle: 29 32 64;
+    --c-info-text: 163 170 240;
+    --c-info-border: 47 53 104;
+    --c-canvas: 12 12 13;
+    --c-surface: 20 20 22;
+    --c-raised: 29 29 32;
+    --c-border: 39 39 42;
+    --c-border-strong: 63 63 70;
+    --c-divider: 31 31 34;
+    --c-text: 250 250 250;
+    --c-text-2: 161 161 170;
+    --c-text-3: 113 113 122;
+    --c-icon: 212 212 216;
+    --c-success: 63 166 92;
+    --c-success-subtle: 16 36 22;
+    --c-success-text: 111 203 141;
+    --c-success-border: 31 74 44;
+    --c-warning: 217 161 58;
+    --c-warning-subtle: 42 32 16;
+    --c-warning-text: 232 188 99;
+    --c-warning-border: 74 58 23;
+    --c-error: 224 106 106;
+    --c-error-hover: 236 133 133;
+    --c-error-subtle: 46 24 24;
+    --c-error-text: 240 144 144;
+    --c-error-border: 90 42 42;
+  }
+}
+
+@layer base {
+  body {
+    font-family: 'Lexend', 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif;
+    font-size: 15px;
+    letter-spacing: -0.006em;
+  }
+  h1, h2, h3, h4 {
+    font-family: 'Space Grotesk', 'Inter', -apple-system, 'Segoe UI', sans-serif;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+  }
+  :focus-visible {
+    outline: 2px solid rgb(var(--c-accent));
+    outline-offset: 2px;
+  }
+  ::placeholder { color: rgb(var(--c-text-3)); }
+  input, select, textarea { background-color: rgb(var(--c-surface)); color: rgb(var(--c-text)); }
+  input[type='checkbox'] { accent-color: rgb(var(--c-accent)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}

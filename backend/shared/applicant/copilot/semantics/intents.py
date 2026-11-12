@@ -1,0 +1,2520 @@
+"""
+What the FOS asked, and which tools answer it.
+
+RULES BEFORE MODEL. Intent is decided by matching phrases, not by asking a
+language model to classify. A FOS asking "is PAN verified?" should not wait a
+second and a half for a model to decide that the question is about a document,
+and a classifier that occasionally routes "what's pending" to the credit agent
+is worse than no classifier.
+
+The patterns are ordered: the most specific intent that matches wins. Anything
+that matches nothing becomes UNKNOWN, which is answered with a list of what
+this agent can actually do rather than a guess.
+
+Out-of-scope intents are matched FIRST and deliberately. A question about a
+credit score must be routed on before anything tries to answer it from FOS
+data.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+from typing import Any
+from dataclasses import dataclass, field
+from enum import Enum
+
+
+class Intent(str, Enum):
+    """Everything this agent recognises."""
+
+    # -- applicant
+    APPLICANT_DETAILS = "APPLICANT_DETAILS"
+    APPLICANT_MISSING_INFO = "APPLICANT_MISSING_INFO"
+    # ONE recorded detail from the FOS form -- "what loan amount did I
+    # enter?", "which mobile is registered?" -- answered from the applicant /
+    # application record (profile.py). `fields["field"]` names it; ALL means
+    # "what have I submitted".
+    APPLICANT_PROFILE = "APPLICANT_PROFILE"
+
+    # -- application
+    APPLICATION_STATUS = "APPLICATION_STATUS"
+    APPLICATION_STAGE = "APPLICATION_STAGE"
+
+    # -- documents
+    DOCUMENTS_UPLOADED = "DOCUMENTS_UPLOADED"
+    DOCUMENTS_REQUIRED = "DOCUMENTS_REQUIRED"
+    DOCUMENTS_MISSING = "DOCUMENTS_MISSING"
+    DOCUMENTS_PENDING = "DOCUMENTS_PENDING"
+    # WHY the checklist is what it is -- which rules fired, which could not
+    # be evaluated, and what made a conditional requirement apply.
+    #
+    # Distinct from DOCUMENTS_REQUIRED, which answers WHAT is needed. An
+    # officer who has to tell a customer why they are being asked for an
+    # extra document needs the rule, not the list, and the checklist
+    # answer cannot carry the whole explanation without becoming unreadable.
+    POLICY_EXPLANATION = "POLICY_EXPLANATION"
+    DOCUMENT_VERIFICATION = "DOCUMENT_VERIFICATION"
+
+    # -- workflow
+    PENDING_ITEMS = "PENDING_ITEMS"
+    NEXT_ACTION = "NEXT_ACTION"
+    READINESS = "READINESS"
+    COMPLETENESS = "COMPLETENESS"
+
+    # -- composite
+    FULL_SUMMARY = "FULL_SUMMARY"
+    # THE LONG TAIL (FOS plan 6.4): a case question no intent fits, answered by the model ONLY from the case's
+    # masked fact sheet and fact-checked against it (capabilities/snapshot_qa.py)
+    CASE_SNAPSHOT = "CASE_SNAPSHOT"
+
+    # -- writes
+    CREATE_APPLICANT = "CREATE_APPLICANT"
+    UPDATE_APPLICANT = "UPDATE_APPLICANT"
+    CREATE_APPLICATION = "CREATE_APPLICATION"
+    MARK_FOR_REUPLOAD = "MARK_FOR_REUPLOAD"
+
+    # -- HOW A STAGE WORKS, as opposed to what happened on a case
+    #
+    # "What does RCU check?" asks about the process. It is not a
+    # question about this case, and it is not a request to do
+    # something downstream -- but it contains the word RCU, which the
+    # out-of-scope rule routes away on sight. That rule exists so the
+    # FOS stage never answers a FRAUD question out of the FOS
+    # handbook, and it is right to. This intent is matched BEFORE it,
+    # narrowly enough that "is this case fraudulent" still routes
+    # downstream while "what does RCU check" is answered from the
+    # stage guide.
+    STAGE_PROCESS = "STAGE_PROCESS"
+
+    # -- the APPLICANT, across all their cases
+    #
+    # Every other intent answers about ONE case. This one answers about
+    # the person: how many applications they have and where each stands.
+    # It is the only read that runs without a case_id, and it is still
+    # scoped -- `applications.list` takes an applicant_id and returns
+    # that applicant's own rows.
+    CASE_PORTFOLIO = "CASE_PORTFOLIO"
+
+    # -- what was FOUND, as opposed to what is true now
+    #
+    # "Why is this case in review?" is not answerable from current state:
+    # the state says REVIEW, not why. The reasons were recorded by the LOS
+    # pipeline at the time and read back from case memory.
+    CASE_HISTORY = "CASE_HISTORY"
+    #: The findings and reason codes recorded on the case, listed as recorded.
+    CASE_FINDINGS = "CASE_FINDINGS"
+    #: The recorded KYC (cross-document consistency) result and its score,
+    #: when the pipeline recorded one -- never a decision, never invented.
+    KYC_RESULT = "KYC_RESULT"
+
+    # -- what the documents SAY about income, and what they EVIDENCE
+    #
+    # "Is my salary verified?" has three honest answers depending on
+    # what was uploaded: a salary slip STATES a figure, a bank statement
+    # EVIDENCES credits arriving, and only where both exist is there a
+    # comparison to report. None of the three is "your salary is X",
+    # which is the answer a model would reach for.
+    INCOME_EVIDENCE = "INCOME_EVIDENCE"
+
+    # -- whether the loan asked for is affordable on the evidence
+    #
+    # READ, NEVER COMPUTED. The verdict, the FOIR and the instalment were
+    # produced by the Eligibility stage and recorded; this intent reads
+    # them back. A chat answer that worked out its own FOIR would give
+    # one applicant two percentages.
+    ELIGIBILITY = "ELIGIBILITY"
+
+    # -- what ONE DOCUMENT on this case says
+    #
+    # "What is the name on my PAN?" had no case route at all: it fell
+    # through to the knowledge base and came back with a handbook
+    # paragraph about PAN cards. The answer is a recorded value, read
+    # from that applicant's released extraction of that document type --
+    # and from no other document.
+    DOCUMENT_DETAILS = "DOCUMENT_DETAILS"
+
+    # -- knowledge, not case data
+    #
+    # A question about how the FOS stage WORKS rather than about this case.
+    # "What can be used as address proof" has no answer in the store; it has
+    # an answer in the FOS knowledge base.
+    FOS_KNOWLEDGE = "FOS_KNOWLEDGE"
+
+    # A question that needs BOTH: the case's own facts and the rule that
+    # explains them. "Why is this not ready and what should I collect?"
+    MIXED = "MIXED"
+
+    # -- not ours
+    OUT_OF_SCOPE = "OUT_OF_SCOPE"
+    UNKNOWN = "UNKNOWN"
+
+
+#: Intents answered deterministically, with no model call at all.
+#:
+#: Two kinds qualify. SINGLE FACTS -- "is PAN verified?" -- where phrasing adds
+#: latency and a chance of drift without adding meaning. And ENUMERATIONS --
+#: a checklist, a document list, a list of pending items -- where the
+#: deterministic wording carries a status against every entry and prose
+#: reliably loses some of them: asked to phrase a five-slot checklist the model
+#: returned "PAN, ADDRESS_PROOF, BANK_STATEMENT missing SALARY_SLIP, PHOTO",
+#: which is grounded, shorter, and worse.
+#:
+#: What is left on the model path is the prose that genuinely reads better for
+#: it: the applicant narrative and the case briefing.
+SIMPLE_INTENTS = frozenset({
+    Intent.APPLICANT_PROFILE,
+    # What is still to capture is an ENUMERATION of recorded gaps: the live
+    # eval caught it being phrased by a model for no gain.
+    Intent.APPLICANT_MISSING_INFO,
+    Intent.DOCUMENT_VERIFICATION,
+    Intent.NEXT_ACTION,
+    Intent.READINESS,
+    Intent.COMPLETENESS,
+    Intent.DOCUMENTS_MISSING,
+    Intent.DOCUMENTS_REQUIRED,
+    Intent.DOCUMENTS_UPLOADED,
+    Intent.DOCUMENTS_PENDING,
+    Intent.PENDING_ITEMS,
+    Intent.APPLICATION_STAGE,
+    Intent.POLICY_EXPLANATION,
+    Intent.CASE_HISTORY,
+    Intent.CASE_FINDINGS,
+    Intent.KYC_RESULT,
+    Intent.CASE_PORTFOLIO,
+    Intent.STAGE_PROCESS,
+    # A recorded value is quoted, never phrased: a paraphrased name is a
+    # different name.
+    Intent.DOCUMENT_DETAILS,
+})
+
+#: Intents that change stored data. Every one needs a write scope and an
+#: explicit confirmation before it runs.
+WRITE_INTENTS = frozenset({
+    Intent.CREATE_APPLICANT,
+    Intent.UPDATE_APPLICANT,
+    Intent.CREATE_APPLICATION,
+    Intent.MARK_FOR_REUPLOAD,
+})
+
+
+@dataclass
+class Classification:
+    """What the message was taken to mean."""
+
+    intent: Intent
+    confidence: str = "high"
+    route_to: str | None = None
+    document_type: str | None = None
+    matched_on: str | None = None
+    fields: dict[str, str] = field(default_factory=dict)
+    #: The message as classified, when normalisation changed it.
+    normalized: str | None = None
+    #: "Which documents are verified / under review / rejected" -- the
+    #: document status the list is filtered to. None lists every document.
+    status_filter: str | None = None
+
+    #: For MIXED, the case intent underneath it. The case half of a mixed
+    #: question is answered from exactly the same tools and the same
+    #: deterministic rules as it would be on its own -- adding a knowledge
+    #: paragraph must not change what the facts are.
+    base_intent: Intent | None = None
+
+    #: WHAT THE QUESTION MEANS (semantic_frame.SemanticFrame), when the
+    #: frame parser understood it. Present on every classification the
+    #: parser could frame, whichever layer decided the intent.
+    frame: Any = None
+    #: Which layer decided: FRAME (the semantic parser), RULES (the ordered
+    #: patterns), EXAMPLES (the legacy word-overlap fallback), LLM.
+    understanding: str | None = None
+
+
+# ==========================================================================
+# MIXED -- a case question with a knowledge question attached
+#
+# Detected structurally rather than by listing phrasings: the message matches
+# a case intent AND carries a second clause asking what/which/how. That second
+# clause is the part the store cannot answer.
+#
+#   "Why is this applicant not ready for CPA and what should I collect?"
+#    |____________ case: READINESS ____________| |__ knowledge __|
+#
+# The case half is answered from the store exactly as it would be alone. The
+# knowledge half is retrieved. Neither is allowed to stand in for the other.
+# ==========================================================================
+
+_MIXED_TAIL = re.compile(
+    r"\b(and|also|plus)\s+(what|which|how|who|can|could|should|"
+    r"tell\s+me|explain)\b|,\s*(and\s+)?(what|which|how)\b",
+    re.IGNORECASE,
+)
+
+#: A question about the RULES rather than about this case.
+#:
+#: Checked only after every case pattern has failed, so "what documents are
+#: pending" stays a case question. The ordering is the whole distinction:
+#: these phrasings are generic, and a generic phrasing about a specific case
+#: is still about the case.
+_KNOWLEDGE: list[str] = [
+    r"\bwhat\s+(\w+\s+){0,3}(can|could|may)\s+be\s+used\b",
+    r"\bwhat\s+(can|could|may)\s+(i|we|you)\s+use\b",
+    r"\bwhat\s+(does|do|is)\s+.{0,48}\bmean(s|ing)?\b",
+    r"\bwhat\s+happens\s+(during|in|at|when|to|if)\b",
+    r"\bwhat\s+is\s+(a|an|the)\s+(checklist|slot|verification|document\s+"
+    r"type|address\s+proof|pending\s+item|next\s+action|kyc\s+check)\b",
+    r"\b(explain|describe|define)\b",
+    r"\bfor\s+(a|an)\s+\w+\s*loan\b",
+    r"\b(policy|policies|rule|rules|guideline|guidelines|procedure)\b",
+    r"\bhow\s+(do|does|is|are|can|should)\s+.{0,48}\b(work|works|verified|"
+    r"classified|handled|processed|decided)\b",
+    r"\bwhat\s+are\s+the\s+(possible|valid|accepted|allowed|different)\b",
+    r"\b(acceptable|accepted|allowed|valid)\s+(document|documents|type|types)\b",
+    r"\bwhat\s+(document|documents)\s+(are|is)\s+(required|needed|accepted)\s+"
+    r"for\b",
+    r"\bcan\s+i\s+(upload|use|submit)\b",
+    r"\bwhy\s+(did|does|would)\s+(my|a|the)\s+document\b",
+]
+
+_COMPILED_KNOWLEDGE = [re.compile(p, re.IGNORECASE) for p in _KNOWLEDGE]
+
+#: Markers strong enough to outrank a case pattern.
+#:
+#: Only phrasings that CANNOT be about one case. Naming a product is the
+#: clear one: a case already has a product, so spelling it out means the
+#: question is about what that product requires in general. Everything softer
+#: stays below the case patterns, where a generic phrasing about a specific
+#: case is still about the case.
+_STRONG_KNOWLEDGE = re.compile(
+    r"\bfor\s+(a|an|any)\s+\w+[\s_-]*loan\b"
+    # A KIND OF APPLICANT is a general rule too: a case already has one.
+    r"|\bfor\s+(a|an|any)\s+(self[\s_-]*employed|salaried|business|"
+    r"professional|non[\s_-]*resident)\s+(applicant|customer|borrower|"
+    r"person|individual|case)s?\b"
+    r"|\bin\s+general\b"
+    r"|\bnormally\s+(required|needed|accepted)\b"
+    r"|\bwhat\s+(is|are)\s+the\s+(fos|kyc)\s+(process|stage|workflow)\b",
+    re.IGNORECASE,
+)
+
+
+def looks_like_knowledge(message: str) -> bool:
+    """Whether the message asks about the rules rather than about a case."""
+    return any(p.search(message or "") for p in _COMPILED_KNOWLEDGE)
+
+
+# ==========================================================================
+# OUT OF SCOPE -- matched first
+# ==========================================================================
+
+_OUT_OF_SCOPE: list[tuple[str, str]] = [
+    # "creditworthy" is the plainest way to ask the question and was not
+    # matched at all -- it fell through to UNKNOWN, and from there to the
+    # knowledge base, which would have answered a creditworthiness question
+    # out of the FOS handbook.
+    (r"\b(credit\s*score|cibil|bureau|credit\s*report|credit\s*history"
+     r"|credit\s*worth\w*|creditworth\w*|credit\s*(assessment|evaluation|memo|appraisal|note|decision\s+note)"
+     r"|eligib\w*\s+for\s+(the\s+|a\s+)?loan)\b", "CREDIT_SCORE"),
+    # ANY mention of risk routes, for the same reason fraud does: the FOS
+    # stage does not own it in any form, so there is nothing to gain from
+    # being precise about the phrasing and something to lose -- "what is the
+    # risk?" fell through to UNKNOWN and then to the knowledge base.
+    (r"\brisk\w*\b", "RISK"),
+    # "Is KYC clear?" -- the adjective, not only the noun "clearance".
+    # THE KYC DECISION is downstream: asking for it, or for a KYC to be
+    # performed, is routed. The RECORDED result / score / status of the
+    # FOS-stage KYC check is answered from case memory (KYC_RESULT).
+    (r"\b(do|perform|run|start|initiate|complete)\s+(a\s+|the\s+|my\s+)?(full\s+|complete\s+)?kyc\b"
+     r"|\bkyc\s*(decision|verdict|clearance|approval)\b|\bkyc\s+(approved|rejected)\b"
+     r"|\b(final|full)\s+kyc\s+(decision|status|result)\b"
+     # "Is KYC clear?" -- clearance is the decision, whoever's KYC it is.
+     r"|\b(is|has|was)\s+(the\s+|my\s+|our\s+)?kyc\s+(been\s+)?(clear|clean|cleared|passed|"
+     r"approved|ok)\b",
+     "KYC_DECISION"),
+    # ANY mention of fraud routes. Narrowing this to "fraud check" and
+    # "fraud investigation" left "are there fraud concerns?" unmatched, and
+    # an unmatched question now falls through to the knowledge base -- which
+    # would answer a fraud question out of the FOS handbook. The FOS stage
+    # does not own fraud in any form, so routing is always the right answer
+    # and there is nothing to be gained by being precise about the phrasing.
+    (r"\b(rcu|fraud|fraudulent|forged|forgery|tamper\w*)\b", "RCU_FRAUD"),
+    # Transactions too. "Analyze the bank transactions" is asking for exactly
+    # the financial analysis the FOS stage must not perform on a statement it
+    # has only verified as a document.
+    (r"\b(analys\w+|analyz\w+)\s+(the\s+)?(bank\s*statement|bank\s*"
+     r"transaction\w*|transaction\w*|income|salary|spending|cash\s*flow)\b",
+     "FINANCIAL_ANALYSIS"),
+    (r"\bbank\s*statement\s+analys\w+\b", "FINANCIAL_ANALYSIS"),
+    (r"\b(transaction|spending|cash\s*flow)\s+(analysis|pattern\w*|behaviour|"
+     r"behavior)\b", "FINANCIAL_ANALYSIS"),
+    # "approved" and "rejected" as well as "approve" -- "will the loan be
+    # approved?" and "should this application be rejected?" are the two most
+    # natural ways to ask, and both fell through to UNKNOWN.
+    (r"^(?![^?]*\b(pan|aadhaa?r|passport|voter|licen[cs]e|address\s+proof|bank\s+statement|"
+     r"salary\s+slip|photo|document|doc|apply\s+kiya|applied\s+for|requested|maanga)\b)[^?]*"
+     r"\b(approve[ds]?|approval|sanction(ed)?|disburse[ds]?|reject(ed|ion)?)\b",
+     "LOAN_DECISION"),
+    (r"\b(is\s+.{0,20}loan\s+safe|should\s+we\s+approve)\b", "LOAN_DECISION"),
+    # DOMAIN-ADJACENT: about money or loans, but not this desk's to answer. Each
+    # is routed with its reason (applicant_agent.yaml `routing`), never guessed at.
+    # (2026-10-12) any subject -- "how much loan can HE get", "the customer" -- and the eligible amount by name
+    (r"\b(how\s+much\s+(loan|money|amount)\s+(can|could|will|would)\s+"
+     r"(i|we|he|she|they|the\s+customer|customer|the\s+applicant|applicant|the\s+borrower|borrower)\s+"
+     r"(get|be\s+given|borrow|avail)"
+     r"|how\s+much\s+(can|could)\s+(i|we|he|she|they|the\s+customer|the\s+applicant)\s+borrow"
+     r"|max(imum)?\s+(loan\s+)?amount\s+(i|we|he|she|they)\s+can"
+     r"|max(imum)?\s+eligib\w*\s+(loan\s+)?amount|eligib\w*\s+(loan\s+)?amount"
+     r"|kitna\s+loan\s+(mil|milega|mil\s+sakta)|loan\s+kab\s+(milega|mil\s+jayega|aayega))\b",
+     "ELIGIBILITY_AMOUNT"),
+    # NEGOTIATING OR PREDICTING terms only. The application RECORDS an interest
+    # rate and a declared EMI: "what is my interest rate?" is a profile answer.
+    (r"\b(reduce|lower|decrease|cut|change|negotiate|waive|kam\s+kar\w*|kam\s+ho)\b.{0,25}"
+     r"\b(emi|interest|rate|roi|fees?|charges?|byaj)\b"
+     r"|\b(what|which)\s+(interest\s+)?rate\s+(will|would|can|could|might)\s+(i|we)\s+get\b"
+     r"|\bbest\s+(interest\s+)?rate\b|\b(foreclos\w*|pre-?payment\s+(penalty|charges?))\b"
+     # Hinglish word order: the verb after the term ("EMI kam kar do")
+     r"|\b(emi|byaj|interest|rate|fees?)\b.{0,15}\b(kam\s+kar\w*|kam\s+ho\w*|ghata\w*)\b", "LOAN_TERMS"),
+    (r"\b(mutual\s*funds?|invest(ing|ment)?|stocks?|share\s+market|sip|fixed\s+deposit|crypto\w*|"
+     r"trading|insurance\s+plan)\b", "INVESTMENT_ADVICE"),
+    (r"\b(should\s+i\s+(take|choose|go\s+for|apply\s+for)|which\s+(loan|product)\s+(is\s+)?(better|best|right)|"
+     r"(personal|home)\s+loan\s+(or|vs\.?|versus)\s+(a\s+)?(personal|home)\s+loan|kaun\s*sa\s+loan\s+(lu|lena))\b",
+     "PRODUCT_ADVICE"),
+]
+
+
+# ==========================================================================
+# IN SCOPE
+#
+# Ordered most specific first. `document_type` is captured where the question
+# names one, so "is PAN verified" reaches the verification tool with PAN.
+# ==========================================================================
+
+_DOC_TYPES = (
+    r"(pan|aadhaar|aadhar|driving\s*licence|driving\s*license|dl|voter\s*id|"
+    r"voter|passport|bank\s*statement|bank\s*account|bank\s*details|"
+    r"account\s*statement|address\s*proof|signature\s*photo|signature|photo|photograph|passport\s*size\s*photo|"
+    # The lender's taxonomy: income, property and business evidence.
+    r"salary\s*slip|pay\s*slip|payslip|itr|income\s*tax\s*return|form\s*16|"
+    r"sale\s*deed|mark\s*sheet|marksheet|business\s*proof\s*[12])"
+)
+
+#: The seven stage names as a question writes them. Kept here rather
+#: than imported so the classifier has no dependency on the stage
+#: model, and spelled with the long forms an officer actually types.
+_STAGE_WORDS = {
+    "FOS": ("fos", "field officer", "field stage"),
+    "CPA": ("cpa", "central processing"),
+    "CREDIT": ("credit",),
+    "RCU": ("rcu", "risk containment"),
+    "BOPS": ("bops", "back office", "back-office"),
+    "HOPS": ("hops", "head office", "head-office"),
+    "DISBURSEMENT": ("disbursement", "disbursal", "disburse"),
+}
+
+#: Asking HOW something works, rather than what happened on a case.
+_PROCESS_VERB = (r"(check|checks|checked|verify|verifies|verified|kaam|role|job|responsibility|"
+                 r"validate|validates|validated|do|does|done|"
+                 r"happen|happens|happened|require|requires|required|"
+                 r"involve|involves|involved|mean|means|"
+                 r"review|reviews|reviewed|cover|covers|covered|"
+                 r"entail|entails|perform|performs|performed)")
+
+#: "what does RCU check", "what happens at CPA", "what is verified in
+#: CREDIT". BOTH ORDERS, because both are natural and a question that
+#: matched only one would look arbitrary to whoever typed the other.
+_STAGE_PROCESS = tuple(
+    re.compile(pattern, re.IGNORECASE) for pattern in (
+        r"\b(what|which|how)\b[^?]{0,40}\b(%s)\b[^?]{0,40}\b%s\b"
+        % ("|".join(w for words in _STAGE_WORDS.values() for w in words),
+           _PROCESS_VERB),
+        r"\b(what|which|how)\b[^?]{0,30}\b%s\b[^?]{0,40}\b(%s)\b"
+        % (_PROCESS_VERB,
+           "|".join(w for words in _STAGE_WORDS.values() for w in words)),
+        # A STAGE NAMED BARE. "What is RCU?" asks what the stage is; the
+        # out-of-scope rule refused it on the word "rcu" while "what does
+        # RCU mean" was answered from the stage guide.
+        r"^\s*what\s+(is|are)\s+(the\s+)?(%s)(\s+stage)?\s*\??\s*$"
+        % "|".join(w for words in _STAGE_WORDS.values() for w in words),
+        r"\bwhat\s+does\s+(%s)\s+stand\s+for\b"
+        % "|".join(w for words in _STAGE_WORDS.values() for w in words),
+        # "THIS STAGE" names no stage: the route answers it from the stage
+        # the case record establishes (stage_in returns None).
+        #
+        # A PROCESS VERB IS REQUIRED. "What IS my stage?" asks WHICH stage
+        # the case is at -- a case fact -- and an earlier form of this
+        # pattern accepted a bare "is", so the commonest wording of the
+        # current-stage question was answered with a stage guide while
+        # "where is my stage?" was answered from the case.
+        r"\b(what|how)\s+(does|do|happens)\b[^?]{0,20}\b(this|my|the\s+current|current)\s+stage\b"
+        r"|\bhow\s+is\s+(this|my|the\s+current|current)\s+stage\s+%s\b"
+        r"|\bwhat\s+happens\s+(in|at|during)\s+(this|my|the\s+current|current)\s+stage\b"
+        r"|\bwhat\s+(is|does)\s+(this|my|the\s+current)\s+stage\s+(mean|about|for|involve)" % _PROCESS_VERB,
+    )
+)
+
+
+#: THE CURRENT-STAGE QUESTION, in its canonical English forms.
+#:
+#: Every language and short form reaches this after normalisation
+#: (language.py -> normalize.py): "mera stage kya hai", "main kis stage pe
+#: hu", "मेरा आवेदन किस चरण में है" all arrive as English words and are
+#: matched by the SAME rules as "what is my stage?". Matched before the
+#: stage-history and stage-process rules, which would otherwise take it on
+#: the word "stage". A named stage ("what is CPA?") or a process verb
+#: ("what does my stage involve?") never matches: the owner word is
+#: followed only by the stage noun and an optional "now".
+_STAGE_NOUN = r"(stage|step|phase)"
+_OWNER = r"(my|our|this|the)"
+_THING = r"(loan\s+)?(application|case|file|loan)"
+_CURRENT_STAGE = re.compile(
+    "|".join((
+        # what is my stage / where is my current stage / what's the stage now
+        rf"^\s*(what|where|which)\s+is\s+{_OWNER}\s+(current\s+|present\s+|"
+        rf"application\s+|case\s+)?{_STAGE_NOUN}(\s+(now|right\s+now|currently|"
+        rf"at\s+the\s+moment))?\s*[?.!]*\s*$",
+        # what stage am i in / which stage is my application at / what step
+        # is it on
+        rf"\b(what|which)\s+(current\s+)?{_STAGE_NOUN}\s+(am\s+i|are\s+we|is\s+"
+        rf"(it|{_OWNER}\s+{_THING}))\b(?!\s+(going|moving|headed)\b)",
+        # tell me my stage / show my current stage
+        rf"^\s*(tell|show|give)\s+(me\s+)?({_OWNER}\s+)?(current\s+)?{_STAGE_NOUN}"
+        rf"\s*[?.!]*\s*$",
+        # current stage? / my current stage? / my stage?
+        rf"^\s*({_OWNER}\s+)?(current\s+|present\s+)?{_STAGE_NOUN}\s*\??\s*$",
+        # where is my application in the process / at which stage is my case
+        rf"\bwhere\s+is\s+{_OWNER}\s+{_THING}\s+(in|on)\s+the\s+(process|"
+        rf"pipeline|journey|workflow|lifecycle)\b",
+        rf"\b(at|in|on)\s+(what|which)\s+{_STAGE_NOUN}\s+is\s+{_OWNER}\s+{_THING}\b",
+        rf"\bwhat\s+{_STAGE_NOUN}\s+is\s+{_OWNER}\s+{_THING}\s+(at|on|in)\b",
+    )),
+    re.IGNORECASE,
+)
+
+
+def asks_current_stage(message: str) -> bool:
+    """Whether this asks which stage the case is at now (a CASE question)."""
+    text = (message or "").strip()
+    return bool(text) and bool(_CURRENT_STAGE.search(text)) and (
+        stage_in(text) is None)
+
+
+def stage_in(message: str) -> str | None:
+    """
+    The stage a question NAMES, or None.
+
+    EXPLICIT ONLY. This reads the words the user typed; it never
+    infers a stage from similarity or from the case. A process
+    question that names no stage returns None, and the caller falls
+    back to the case's own stage rather than guessing.
+    """
+    lowered = (message or "").lower()
+    for stage, words in _STAGE_WORDS.items():
+        for word in words:
+            if re.search(r"\b" + re.escape(word) + r"\b", lowered):
+                return stage
+    return None
+
+
+#: A QUESTION ABOUT WHERE THE CASE HAS BEEN, not where it is or how a
+#: stage works: "where was my application before CPA", "when did my
+#: application move to CPA", "why did it move to CPA", "stage history".
+#: Answered from the recorded stage history (status_facts.
+#: stage_history_answer) -- never inferred.
+_STAGE_HISTORY_ALWAYS = re.compile(
+    r"\bstage\s+history\b|\b(previous|prior|earlier|last)\s+stage\b"
+    # "What changed?" is answered from the recorded stage history.
+    r"|^\s*what(\s+has|'s|\s+have)?\s+changed\b"
+    r"|\bwhere\s+was\s+(it|my|the|this|our)\b[^?]{0,30}\bbefore\b"
+    r"|\bstages?\b[^?]{0,30}\b(been|gone|passed)\s+through\b",
+    re.IGNORECASE)
+#: "What happened on my case so far?" -- the recorded case history.
+_CASE_HAPPENED = re.compile(
+    r"\bwhat(\s+has|'s|\s+all|\s+have)?\s+happened\b[^?]{0,40}\b(so\s+far|till\s+now|until\s+now|"
+    r"to\s+date|up\s+to\s+now|ab\s+tak|abhi\s+tak)\b"
+    r"|\bwhat(\s+has|'s|\s+all|\s+have)?\s+happened\s+(on|to|with|in)\s+(my|this|the|our)\s+"
+    r"(loan\s+)?(case|file|application|loan)\b", re.IGNORECASE)
+_STAGE_HISTORY_BEFORE = re.compile(
+    r"\b(where|which|what)\b[^?]{0,50}\b(was|were)\b[^?]{0,40}\bbefore\b",
+    re.IGNORECASE)
+_STAGE_HISTORY_AFTER = re.compile(
+    r"\bwhat\s+(has\s+)?happened\s+(after|since)\b", re.IGNORECASE)
+_STAGE_HISTORY_MOVE = re.compile(
+    r"\b(when|why)\b[^?]{0,50}\b(move|moved|go|went|sent|enter|entered|"
+    r"reach|reached|transfer\w*|shift\w*|hand\w*|promot\w*|advanc\w*|"
+    r"come|came|get|got)\b",
+    re.IGNORECASE)
+_STAGE_HISTORY_SUBJECT = re.compile(
+    r"\b(my|this|our|the)\s+(loan\s+)?(application|case|file|loan)\b|\bit\b",
+    re.IGNORECASE)
+
+
+#: WHAT FOLLOWS FROM A GAP: "what happens because this document is
+#: pending", "what if this isn't fixed". Answered from the workflow's own
+#: readiness record (what blocks the handoff) -- never from a model's idea
+#: of the consequence. Where no readiness is recorded for the stage, the
+#: stage gate says it is not available.
+_IMPACT = re.compile(
+    r"\bwhat\s+(happens|will\s+happen|would\s+happen|is\s+the\s+impact)\b"
+    r"[^?]{0,60}\b(pending|missing|not\s+(fixed|resolved|provided|submitted|"
+    r"uploaded)|isn'?t\s+(fixed|resolved|provided)|if\s+i\s+don'?t|if\s+not)\b"
+    r"|\b(impact|consequence|effect)s?\s+of\b[^?]{0,40}\b(pending|missing|"
+    r"issue|problem|document|mismatch)",
+    re.IGNORECASE)
+
+
+def asks_impact(message: str) -> bool:
+    return bool(_IMPACT.search(message or ""))
+
+
+def asks_stage_history(message: str) -> bool:
+    """Whether the question asks where the case HAS BEEN in the lifecycle."""
+    text = message or ""
+    if _STAGE_HISTORY_ALWAYS.search(text):
+        return True
+    names_stage = (stage_in(text) is not None
+                   or re.search(r"\bstage\b", text, re.IGNORECASE))
+    if not names_stage:
+        return False
+    if _STAGE_HISTORY_BEFORE.search(text):
+        return True
+    # "What happened after FOS?" -- PAST tense about a named stage is this
+    # case's journey; "what happens after CPA" (present) is how the process
+    # works, and stays with the stage guides.
+    if _STAGE_HISTORY_AFTER.search(text):
+        return True
+    # "Why is my case in RCU?" -- why it is AT a stage is why it moved there.
+    if (stage_in(text) is not None
+            and re.search(r"\bwhy\b[^?]{0,40}\b(in|at)\s+(the\s+)?\w+", text,
+                          re.IGNORECASE)
+            and _STAGE_HISTORY_SUBJECT.search(text)):
+        return True
+    return bool(_STAGE_HISTORY_MOVE.search(text)
+                and _STAGE_HISTORY_SUBJECT.search(text))
+
+
+#: Words that make a question about THIS CASE. A message carrying
+#: one of them is asking what happened here, not how a desk works --
+#: "what happened to this case from FOS to RCU" names two stages and
+#: a process verb, and is a case journey question. Answering it from
+#: a stage guide would describe the process to somebody who asked
+#: about their file.
+_CASE_DEIXIS = re.compile(
+    r"\b(this|my|the|our)\s+(case|application|applicant|file|loan|"
+    r"customer)\b|\bcase[ _-]?id \b", re.IGNORECASE)
+
+
+def looks_like_stage_process(message: str) -> bool:
+    """Whether this is a question about how a stage works."""
+    text = (message or "").strip()
+    if _CASE_DEIXIS.search(text):
+        # ASKED ABOUT A CASE. "What happened to this case from FOS to
+        # RCU" names two stages and a process verb and is still a
+        # question about a file, not about a desk. Answering it from a
+        # stage guide would describe the process to somebody who asked
+        # what happened to them. It keeps its existing case route --
+        # MIXED when it asks both things, which answers the case half
+        # from records and the rest from knowledge.
+        return False
+    if any(pattern.search(text) for pattern in _STAGE_PROCESS):
+        return True
+    # WHO WORKS A NAMED STAGE ("who handles cpa?", "who reviews the file at credit"): a role question (task.role_words
+    # + role_verbs) naming a stage is answered by that stage's guide (2026-10-23: it got the case's readiness)
+    from shared.applicant.copilot.semantics import task as _role
+
+    return bool(stage_in(text)) and _role.enabled() and _role.asks_role(text)
+
+
+def _asks_how_a_stage_works(message: str) -> bool:
+    """
+    The phrasing alone, WITHOUT the case test.
+
+    Used only to decide whether the out-of-scope rule should stand
+    aside. See `classify`.
+    """
+    return any(pattern.search((message or "").strip())
+               for pattern in _STAGE_PROCESS)
+
+
+_PATTERNS: list[tuple[str, Intent]] = [
+    # -- about the PERSON, not about one case ----------------------------
+    #
+    # FIRST, because "how many cases do I have" also matches the generic
+    # status patterns, and answering it from the current case reports one
+    # case's status to somebody who asked about all of them.
+    (r"\bhow\s+many\b.{0,20}\b(cases?|applications?|loans?)\b",
+     Intent.CASE_PORTFOLIO),
+    # PLURAL, OR AN EXPLICIT MULTI-CASE WORD. A bare "my" was too
+    # greedy: "what is the status of my application?" is a question
+    # about THE case in front of the officer, and routing it here
+    # answered with a list of every application the person has.
+    (r"\b(all|other|previous|past)\s+(of\s+)?(my\s+)?(cases?|applications?)\b",
+     Intent.CASE_PORTFOLIO),
+    (r"\bmy\s+(cases|applications)\b", Intent.CASE_PORTFOLIO),
+    # "saare cases ka summary", "sab applications", "all my cases" -- every case
+    (r"\b(saare|sare|sab|sabhi|all|every)\s+(\w+\s+)?(cases|applications|case|application)\b"
+     r"(?![^?]{0,10}\b(documents?|docs?)\b)", Intent.CASE_PORTFOLIO),
+    (r"\bacross\b.{0,20}\b(cases?|applications?)\b", Intent.CASE_PORTFOLIO),
+    # ONE CASE BY ITS POSITION among the person's cases, or the ones in
+    # trouble: "latest case", "pichle case ka status", "kis case mein issue hai".
+    (r"\b(latest|newest|most\s+recent|pichl\w*|puran[aie]|older|earlier)\s+(case|application|loan)s?\b",
+     Intent.CASE_PORTFOLIO),
+    (r"\b(kis|kaun\w*|konse|konsa|which)\s+(case|application)s?\b.{0,25}"
+     r"\b(issues?|problems?|blocked|blocking|atk\w*|stuck|attention|dikkat|gadbad|fail\w*|reject\w*)\b",
+     Intent.CASE_PORTFOLIO),
+    (r"\b(list|show)\b.{0,20}\b(cases|applications|all\s+(my\s+)?(cases?|applications?))\b(?!\s+(status|stage|details?))",
+     Intent.CASE_PORTFOLIO),
+    # AFFORDABILITY, BEFORE INCOME AND BEFORE VERIFICATION.
+    #
+    # "Why is my eligibility under review" contains "review" and would
+    # otherwise reach the case-history patterns, which answer from the
+    # KYC findings -- a real answer to a different question.
+    (r"\beligib\w*\b", Intent.ELIGIBILITY),
+    (r"\bfoir\b", Intent.ELIGIBILITY),
+    # "kya income kaafi hai loan ke liye" / "is the income enough for this loan" -- the eligibility verdict (2026-10-12)
+    (r"\b(income|salary|aay)\b[^?]{0,25}\b(kaafi|kafi|enough|sufficient|adequate|chalegi|chalega)\b"
+     r"|\b(enough|sufficient)\s+(income|salary)\b", Intent.ELIGIBILITY),
+    (r"\b(afford|affordab\w+)\b", Intent.ELIGIBILITY),
+    (r"\b(emi|instal?ment)\b[^?]{0,30}"
+     r"\b(proposed|calculated|computed|what|how\s+much)\b"
+     r"|\b(what|how\s+much)\b[^?]{0,20}\b(emi|instal?ment)\b",
+     Intent.ELIGIBILITY),
+    (r"\b(obligations?|liabilit\w+)\b[^?]{0,30}"
+     r"\b(considered|counted|used|recorded|captured)\b",
+     Intent.ELIGIBILITY),
+    (r"\bwhat\s+income\b[^?]{0,30}\b(used|considered|counted)\b",
+     Intent.ELIGIBILITY),
+
+    # WHAT ONE DOCUMENT SAYS, before income and verification.
+    #
+    # "What is my PAN name?", "which name is on my PAN?", "what name was
+    # extracted from my PAN?", "the account holder name on my bank
+    # statement". A field AND a document, in the case's own voice.
+    # NEVER A COMPARISON: anything asking whether two things match is a
+    # finding, answered from the recorded KYC comparison below -- hence
+    # the guard at the front of each pattern. And never a definition:
+    # "what does PAN name mismatch mean" has reached the handbook before
+    # these are tried.
+    (r"^(?!.*\b(mis)?match)(?!.*\bdiffer).*\b(my|the|this|his|her|their)\s+(full\s+|complete\s+|entire\s+)?(pan(\s*card)?|salary\s*slip|pay\s*slip|payslip|bank\s*statement|bank\s*account|driving\s*licen[cs]e|voter\s*id|passport|aadhaa?r)\s+(card\s+)?(name|number|dob|date\s+of\s+birth)\b",
+     Intent.DOCUMENT_DETAILS),
+    (r"^(?!.*\b(mis)?match)(?!.*\bdiffer).*"
+     r"\b(name|father'?s?\s*name|date\s+of\s+birth|dob|birth\s*date|"
+     r"pan\s*(number|no)|employer|account\s*holder)\b[^?]{0,40}"
+     r"\b(on|in|from|of)\s+(my|the|this|his|her|their)?\s*(pan(\s*card)?|salary\s*slip|pay\s*slip|payslip|bank\s*statement|bank\s*account|driving\s*licen[cs]e|voter\s*id|passport|aadhaa?r)\b",
+     Intent.DOCUMENT_DETAILS),
+    (r"\bwho\s+is\s+the\s+(bank\s+)?account\s+holder\b",
+     Intent.DOCUMENT_DETAILS),
+    # "<DOCUMENT> DETAILS": "give me pan details", "PAN details", "show the licence
+    # info", "details of my PAN card", "pan ki details" -- were UNKNOWN or the
+    # missing-documents list (bug report 2026-10-05). Never a requirement ("why is
+    # PAN needed", "which details does PAN need") and never a comparison.
+    (r"^(?!.*\b(mis)?match)(?!.*\bdiffer)(?!.*\b(need|needed|required|require|requirement|why|upload|kyu|kyon)\b)"
+     r"(.*\b(pan(\s*card)?|salary\s*slip|pay\s*slip|payslip|bank\s*statement|driving\s*licen[cs]e|licen[cs]e|dl|"
+     r"voter\s*(id|card)|passport|itr|aadhaa?r)\s*(card\s*)?(ki|ke|ka|chi|che|cha)?\s*"
+     r"(details?|info(rmation)?|data|fields?)\b"
+     r"|.*\b(details?|info(rmation)?|data|fields?)\s+(of|on|from|in)\s+(my|the|this|his|her|their)?\s*"
+     r"(pan(\s*card)?|salary\s*slip|pay\s*slip|payslip|bank\s*statement|driving\s*licen[cs]e|licen[cs]e|"
+     r"voter\s*(id|card)|passport|itr|aadhaa?r)\b)",
+     Intent.DOCUMENT_DETAILS),
+    # EVERY RELEASED FIELD of one document: "what details were extracted from the
+    # bank statement?", "PAN se kya kya nikla", "show the fields read from the licence"
+    (r"^(?!.*\b(mis)?match)(?!.*\bdiffer).*\b(details?|fields?|information|info|data|kya\s+kya|values?)\b[^?]{0,30}"
+     r"\b(extracted|read|captured|pulled|found|nikla|nikle|nikali)\b[^?]{0,25}"
+     r"(pan(\s*card)?|salary\s*slip|pay\s*slip|payslip|bank\s*statement|driving\s*licen[cs]e|licen[cs]e|voter\s*id|passport|itr|aadhaa?r)\b"
+     r"|^(?!.*\b(mis)?match).*\b(pan(\s*card)?|salary\s*slip|bank\s*statement|driving\s*licen[cs]e|voter\s*id|passport|itr)\b"
+     r"[^?]{0,20}\b(se|from)\b[^?]{0,15}\b(kya\s+kya|what)\b[^?]{0,20}\b(nikla|nikle|extracted|read)\b",
+     Intent.DOCUMENT_DETAILS),
+
+    # INCOME, BEFORE THE VERIFICATION PATTERNS.
+    #
+    # "Is my salary verified?" matches the generic
+    # <thing> + verified pattern, which answers from document
+    # verification -- a statement that the salary slip is a readable,
+    # coherent document, which is not what was asked. What the slip
+    # states and what the statement evidences are recorded separately,
+    # and the difference between them is the answer.
+    (r"\b(salary|income|pay|earnings)\b[^?]{0,40}"
+     r"\b(shown|stated|state|says?|on)\b[^?]{0,25}"
+     r"\b(salary\s*slip|slip|payslip|pay\s*slip)\b",
+     Intent.INCOME_EVIDENCE),
+    (r"\b(salary|income|credits?)\b[^?]{0,40}"
+     r"\b(bank\s*statement|statement|account)\b",
+     Intent.INCOME_EVIDENCE),
+    (r"\b(bank\s*statement|statement)\b[^?]{0,30}"
+     r"\b(support|match\w*|confirm\w*|back\s*up)\b[^?]{0,25}"
+     r"\b(salary|income|pay)\b",
+     Intent.INCOME_EVIDENCE),
+    (r"\b(salary\s*slip|payslip|pay\s*slip)\b[^?]{0,30}"
+     r"\b(match\w*|agree\w*|consistent|compare\w*)\b",
+     Intent.INCOME_EVIDENCE),
+    (r"\b(income|salary)\b[^?]{0,20}\bmismatch\b"
+     r"|\bmismatch\b[^?]{0,20}\b(income|salary)\b",
+     Intent.INCOME_EVIDENCE),
+    (r"\bwhy\b[^?]{0,30}\b(income|salary)\b[^?]{0,30}"
+     r"\b(review|checked|flagged|pending)\b",
+     Intent.INCOME_EVIDENCE),
+    (r"\b(how\s+much|what)\b[^?]{0,30}"
+     r"\b(monthly\s+)?(income|salary|earnings)\b[^?]{0,30}"
+     r"\b(evidenc\w+|observ\w+|support\w+|verified|shown)\b",
+     Intent.INCOME_EVIDENCE),
+    (r"\bis\b[^?]{0,15}\b(my|the|his|her|their)\s+"
+     r"(salary|income)\b[^?]{0,20}\b(verified|confirmed|checked)\b",
+     Intent.INCOME_EVIDENCE),
+
+    # -- why is it like this? --------------------------------------------
+    #
+    # FIRST, because "why is this case in review" also matches the generic
+    # status patterns further down, and the status answer ("it is in
+    # review") is not what was asked.
+    (r"\bwhy\b.{0,40}\b(in\s+)?(review|pending|rejected|failed|flagged)\b",
+     Intent.CASE_HISTORY),
+    (r"\bwhy\b.{0,30}\b(this\s+)?case\b", Intent.CASE_HISTORY),
+    # "Summarise this document / my documents" -- the case's documents and
+    # where each stands (one named document: its verification).
+    (r"\bsumm?ar(y|i[sz]e|i[sz]ing)\b[^?]{0,25}\b(this|the|my|these|all|uploaded)?\s*"
+     r"(documents?|docs?|files?|uploads?|papers?)\b", Intent.DOCUMENTS_UPLOADED),
+    # "I uploaded it three times and it's STILL pending" -- a complaint that
+    # is a pending-documents question. Narrow: "still pending" said of it /
+    # them; "why is it still pending" is taken by the rule above.
+    (r"\b(it'?s|it\s+is|they'?re|they\s+are|is|are)\s+still\s+pending\b",
+     Intent.DOCUMENTS_PENDING),
+    # "Why hasn't my application moved?" -- the recorded reasons, and the
+    # delay explanation the agent attaches to a CASE_HISTORY delay question.
+    (r"\bwhy\b[^?]{0,40}\b(hasn'?t|has\s+not|isn'?t|is\s+not|not|didn'?t|did\s+not)"
+     r"\s+(it\s+|my\s+\w+\s+|this\s+\w+\s+)?(moved|moving|move|progress\w*|advanced|"
+     r"gone\s+ahead)\b", Intent.CASE_HISTORY),
+    # WHAT IS HOLDING IT UP. "What's causing the delay?", "why is my file
+    # on hold?", "what is holding up my case?" ask for the reason, which is
+    # recorded -- not for the status, which is what "file" alone suggested.
+    (r"\b(why|what)\b[^?]{0,30}\b(on\s+hold|held\s+up|delay\w*|stuck|"
+     r"holding\s+(up|back)|holding\b[^?]{0,20}\b(up|back))\b",
+     Intent.CASE_HISTORY),
+    # WHAT THE MISMATCH ACTUALLY IS, on this case.
+    #
+    # "What exactly is the mismatch in my documents?" routed to the
+    # knowledge base and came back with a definition of the word -- to
+    # an officer looking at a case whose PAN and bank statement name two
+    # different people, with both names already recorded. The question
+    # has a specific, recorded answer and it is in case memory.
+    #
+    # THE DEFINITIONAL GUARD ABOVE IS WHAT KEEPS THIS HONEST. "What is a
+    # document mismatch" reaches the handbook before these patterns are
+    # tried, so widening the case route did not narrow the generic one.
+    (r"\bwhat\b[^?]{0,20}\bis\b[^?]{0,20}\bthe\s+mismatch\b",
+     Intent.CASE_HISTORY),
+    (r"\bmismatch\b[^?]{0,30}\b(in|on|with|for)\b[^?]{0,20}"
+     r"\b(my|our|his|her|their|this|the)\b[^?]{0,20}"
+     r"\b(documents?|case|application|file)\b",
+     Intent.CASE_HISTORY),
+    (r"\bwhy\b[^?]{0,40}\b(is|are|was|were)\b[^?]{0,30}\bmismatch\b",
+     Intent.CASE_HISTORY),
+    (r"\bwhat\s+mismatch\b[^?]{0,30}\b(was|were|is|are)\b[^?]{0,20}"
+     r"\b(found|detected|identified|recorded|reported)\b",
+     Intent.CASE_HISTORY),
+    # WHICH ONES DISAGREE. "Which details don't match?" and "which names
+    # don't match?" name the field, and the recorded finding names the
+    # values -- which is the whole of what is being asked.
+    (r"\b(which|what)\b[^?]{0,20}"
+     r"\b(details?|names?|fields?|values?|dates?)\b[^?]{0,25}"
+     r"\b(do\s*n.?t|do\s+not|does\s*n.?t|does\s+not|mismatch\w*|"
+     r"disagree\w*|differ\w*)\b",
+     Intent.CASE_HISTORY),
+    # ANYTHING WRONG WITH THE CASE ITSELF, as opposed to with one
+    # document -- the document pattern further down keeps that.
+    (r"\bwhat\b[^?]{0,15}\b(is|are)\b[^?]{0,15}\bwrong\b[^?]{0,20}"
+     r"\b(with|on|in)\b[^?]{0,20}"
+     r"\b(my|our|his|her|their|this|the)\b[^?]{0,20}"
+     r"\b(case|application|file|documents?)\b",
+     Intent.CASE_HISTORY),
+    # WHAT WAS FOUND. "What issue was found in my documents?" is asking
+    # for the finding, which is recorded; answered from the checklist it
+    # would list every document instead.
+    (r"\b(what|which)\b[^?]{0,20}"
+     r"\b(issues?|problems?|errors?|discrepanc\w+|concerns?)\b[^?]{0,30}"
+     r"\b(found|detected|identified|raised|recorded|reported)\b",
+     Intent.CASE_HISTORY),
+    (r"\bwhat\s+(findings?|reasons?)\b", Intent.CASE_HISTORY),
+    # "Show me the important issues" -- the case's recorded problems, asked
+    # for without naming a document (a named one is a verification question
+    # further down).
+    (r"^(?![^?]*\b(bank|statement|documents?|docs?|pan|deed|passport|slip|"
+     r"licen[cs]e|aadhaa?r|voter)\b)"
+     r"[^?]*\b(show|list|what\s+are)\b[^?]{0,25}\b(issues|problems|concerns)\b",
+     Intent.CASE_HISTORY),
+    # DO TWO IDENTITY DOCUMENTS AGREE? The recorded KYC comparison is the
+    # answer, naming both values; neither document alone is.
+    (r"\b(does|do|is|are)\b[^?]{0,20}"
+     r"\b(pan|aadhaa?r|driving\s*licen[cs]e|voter\s*id|passport)\b"
+     r"[^?]{0,20}\b(match\w*|agree\w*|same)\b",
+     Intent.CASE_HISTORY),
+    (r"\bwhich\s+documents?\b[^?]{0,30}"
+     r"\b(mismatch\w*|do\s*n.?t\s+match|does\s*n.?t\s+match|differ\w*)\b",
+     Intent.CASE_HISTORY),
+    # THE RECORDED DECISION -- what the pipeline concluded, which is not
+    # the loan decision the out-of-scope rule keeps downstream.
+    (r"\b(current|latest|recorded)\s+decision\b", Intent.CASE_HISTORY),
+    (r"\b(findings?|reasons?)\b.{0,30}\b(caused|led\s+to|behind)\b",
+     Intent.CASE_HISTORY),
+    (r"\bwhat\s+happened\b.{0,30}\b(with|to)\b", Intent.CASE_HISTORY),
+    (r"\bcase\s+history\b", Intent.CASE_HISTORY),
+    # ANYTHING WRONG WITH A PARTICULAR DOCUMENT. Kept to documents
+    # deliberately: "what is wrong with this case" is a findings
+    # question, and the case history above already answers it.
+    (r"\b(issues?|problems?|wrong|errors?|concerns?)\b[^?]{0,40}"
+     r"\b(bank|account|statement|document|pan|deed)\b",
+     Intent.DOCUMENT_VERIFICATION),
+    # WHAT IS ON FILE -- the document list, not the findings.
+    (r"\b(what|which|any)\b[^?]{0,30}\bdocuments?\b[^?]{0,40}"
+     r"\b(available|uploaded|submitted|on\s+file|received|do\s+we\s+have|are\s+there)\b",
+     Intent.DOCUMENTS_UPLOADED),
+    # WHAT A DOCUMENT ESTABLISHED. "Which bank details were
+    # verified" and "was the bank statement verified" are asking
+    # about a verification outcome, and fell to UNKNOWN -- answered
+    # with a menu of other questions. Routed to the verification
+    # intent, they are answered from what verification actually
+    # recorded, which is a status and a reason, never the account
+    # number: extracted identity values are deliberately not
+    # indexed and cannot be retrieved by a question.
+    (r"\b(bank|account|statement|salary|income)\b[^?]{0,40}"
+     r"\b(verified|verif\w+|checked|confirmed|validated)\b",
+     Intent.DOCUMENT_VERIFICATION),
+    (r"\b(verified|verif\w+|checked|confirmed)\b[^?]{0,40}"
+     r"\b(bank|account|statement)\b",
+     Intent.DOCUMENT_VERIFICATION),
+    # WHICH DOCUMENTS CAUSED IT is a question about the findings,
+    # not about the document list. Answered from the checklist it
+    # would name every document on the case, including the ones
+    # that passed -- and the two or three that did not are the
+    # whole of what was asked.
+    (r"\b(which|what)\s+documents?\b[^?]{0,40}"
+     r"\b(caus\w+|led\s+to|trigger\w*|responsible|behind|flagg\w+)\b",
+     Intent.CASE_HISTORY),
+    # "What happened BEFORE this reached Credit" is a question about
+    # the trail, and the trail is recorded. Without this it fell to
+    # UNKNOWN and was answered with a menu of other questions.
+    (r"\bwhat\s+happened\b.{0,40}\b(before|prior|earlier|leading)\b",
+     Intent.CASE_HISTORY),
+    # writes, before the reads they resemble
+    (r"\b(create|add|register)\s+(a\s+)?(new\s+)?applicant\b", Intent.CREATE_APPLICANT),
+    (r"\b(create|start|open)\s+(a\s+)?(new\s+)?application\b", Intent.CREATE_APPLICATION),
+    (r"\b(update|change|set|correct)\b.{0,40}\b(phone|mobile|number|email|address|name|dob|date\s+of\s+birth)\b",
+     Intent.UPDATE_APPLICANT),
+    (r"\b(mark|flag|request)\b.{0,30}\b(re-?upload|reupload|again)\b", Intent.MARK_FOR_REUPLOAD),
+
+    # composite summary
+    (r"\b(complete|full|entire|overall)\s+(applicant\s+|case\s+)?(summary|overview|picture|status)\b",
+     Intent.FULL_SUMMARY),
+    (r"\b(summari[sz]e|briefing|brief\s+me|overview\s+of\s+(this\s+)?(case|applicant))\b",
+     Intent.FULL_SUMMARY),
+    (r"\bwhat('?s| is)\s+done\b.{0,40}\bpending\b", Intent.FULL_SUMMARY),
+    (r"\b(tell|give)\s+me\s+(the\s+)?(complete|full|everything)\b", Intent.FULL_SUMMARY),
+    (r"^(?![^?]*\b(documents?|docs?|policy|kyc)\b)[^?]*\b(summary|summari[sz]e|overview|"
+     r"sab\s*kuch\s+(batao|tell|bata)|poori\s+jaankari|everything\s+about\s+my)\b", Intent.FULL_SUMMARY),
+    (r"\bwhere\s+(does|is)\s+(this|the)\s+case\s+stand\b", Intent.FULL_SUMMARY),
+    (r"\bquick\s+overview\b", Intent.FULL_SUMMARY),
+    # "Give me the current status of Rahul's application" wants the briefing,
+    # not the one-line application status -- a FOS asking this way is opening
+    # the case, not checking one field. "What's the application status?" is
+    # the concise question and is matched further down.
+    (r"\b(give|show|tell)\s+me\s+the\s+(current\s+)?status\b", Intent.FULL_SUMMARY),
+    (r"\b(current\s+)?status\s+of\s+(this|the|\w+'s|\w+s')\s+(application|case|applicant)\b",
+     Intent.FULL_SUMMARY),
+    (r"\bhow\s+is\s+(this|the|\w+'s)\s+(case|application)\s+(doing|going|looking)\b",
+     Intent.FULL_SUMMARY),
+
+    # readiness
+    (r"\b(ready|readiness)\b.{0,20}\bcpa\b", Intent.READINESS),
+    # "what about CPA?" / "and CPA?" on a case: whether it can go to CPA (held-out evaluation, 2026-10-12)
+    (r"^(and\s+|so\s+)?(what|how)\s+about\s+(moving\s+to\s+|going\s+to\s+|the\s+)?cpa\W*$|^and\s+cpa\W*$",
+     Intent.READINESS),
+    # WHAT STANDS BETWEEN THE CASE AND CPA (audit 2026-10-11): "what exactly is blocking CPA?" is the readiness
+    # blockers, never the stage process description
+    (r"\b(block\w*|stopp?\w*|prevent\w*|holding\s+up|holds?\s+up)\b[^?]{0,25}\b(cpa)\b"
+     r"|\bcpa\b[^?]{0,15}\b(blocked|blockers?)\b", Intent.READINESS),
+    # A field officer says "this case"; an applicant-facing screen says "my
+    # application". Both are the same question and both must reach it.
+    (r"\bis\s+(my|this|the)\s+(case|application|file)\b.{0,20}\bready\b",
+     Intent.READINESS),
+    (r"\bwhy\s+is\s+(my|this|the)\s+(case|application|file|applicant)\b"
+     r".{0,30}\bnot\s+ready\b",
+     Intent.READINESS),
+    (r"\b(am\s+i|are\s+we)\s+ready\b", Intent.READINESS),
+    # "Can I proceed to the next stage?" asks whether the handoff is ready,
+    # not which stage the case is in -- the stage pattern below would take
+    # it on the word "stage".
+    (r"\bcan\s+(i|we|it|this|(my|this|the)\s+(case|application|file))\s+"
+     r"(proceed|move|go|progress|advance)\b[^?]{0,25}"
+     r"\b(next\s+stage|forward|ahead|further|cpa)\b",
+     Intent.READINESS),
+    (r"\bcan\s+i\s+(submit|send|hand)\b", Intent.READINESS),
+    # a REQUEST to send / move it to CPA -- never "when did it move to CPA" (the recorded stage history)
+    (r"^(?!.*\b(when|kab|did|was|has\s+it|moved)\b).*?\b(send|move|hand)\s+(this\s+)?(to\s+)?cpa\b",
+     Intent.READINESS),
+
+    # completeness
+    (r"\bis\s+(everything|it|this|the\s+application)\s+complete\b", Intent.COMPLETENESS),
+    (r"\b(application|profile)\s+complete\b", Intent.COMPLETENESS),
+    (r"\ball\s+(mandatory|required)\s+(fields|information)\b", Intent.COMPLETENESS),
+    (r"\bwhat\s+is\s+missing\s+before\s+submission\b", Intent.COMPLETENESS),
+
+    # verification, before the generic document patterns
+    #
+    # "is", but also "has ... been", "was", "were", "have". A field officer
+    # asks the same question five ways and none of them is unusual; matching
+    # only "is the PAN verified" sent "has the PAN been verified" to UNKNOWN.
+    # "Is MY PAN verified?" too -- the possessive sent it to UNKNOWN.
+    (rf"\b(is|are|was|were|has|have)\s+(the\s+|my\s+|his\s+|her\s+|their\s+)?{_DOC_TYPES}\b"
+     rf".{{0,24}}\b(verified|ok|okay|valid|done|fine|passed|cleared)\b",
+     Intent.DOCUMENT_VERIFICATION),
+    (rf"\bwhy\b.{{0,40}}\b{_DOC_TYPES}\b.{{0,30}}\b(fail|failed|review|rejected)\b",
+     Intent.DOCUMENT_VERIFICATION),
+    (r"\bwhy\s+did\s+(this|the|it)\b.{0,30}\b(fail|rejected|review)\b",
+     Intent.DOCUMENT_VERIFICATION),
+    (r"\b(verification\s+(status|result)|which\s+documents?\s+(failed|passed))\b",
+     Intent.DOCUMENT_VERIFICATION),
+    # The same question about the whole bundle rather than one type. Without
+    # this it fell through to UNKNOWN and then to the knowledge base, which
+    # would answer what verification MEANS to someone asking whether THIS
+    # case's documents passed.
+    (r"\b(is|are|was|were|has|have)\s+(the\s+|all\s+(the\s+)?|any\s+(of\s+the\s+)?)?"
+     r"documents?\b.{0,24}\b(verified|passed|cleared|ok|okay|done)\b",
+     Intent.DOCUMENT_VERIFICATION),
+    # "Which documents have been verified?" -- asking the set, not one type.
+    (r"\b(which|what)\s+documents?\b.{0,24}\b(verified|passed|cleared|"
+     r"rejected|failed)\b",
+     Intent.DOCUMENT_VERIFICATION),
+    (r"\bdocuments?\s+(issues?|problems?|needs?\s+attention|requires?\s+attention"
+     r"|has\s+(an\s+)?(issue|problem))\b", Intent.DOCUMENT_VERIFICATION),
+
+    # documents
+    (r"\b(which|what)\s+documents?\s+(are\s+)?(missing|not\s+uploaded|left|remaining|still\s+needed)\b",
+     Intent.DOCUMENTS_MISSING),
+    (r"\b(missing|outstanding)\s+documents?\b", Intent.DOCUMENTS_MISSING),
+    (r"\bwhich\s+docs?\s+are\s+(left|missing|pending)\b", Intent.DOCUMENTS_MISSING),
+    # THE QUESTION WITHOUT THE WORD "DOCUMENT" IN IT.
+    #
+    # "Show me what I still have to collect" is the plainest way a field
+    # officer asks this and it matched nothing -- it fell through to
+    # UNKNOWN, and from there to the knowledge base, which answered it
+    # confidently out of the FOS handbook with a paragraph about
+    # verification states. A confident irrelevant answer is worse than no
+    # answer: the officer reads it, learns nothing, and stops trusting the
+    # copilot.
+    #
+    # The verb carries the meaning here, not the noun. "Collect", "gather"
+    # and "get" with a still/left/remaining marker are asking what is
+    # outstanding whether or not the word "document" appears.
+    (r"\b(still|left|yet|remaining)\b.{0,24}\b(collect|gather|obtain|get)\b",
+     Intent.DOCUMENTS_MISSING),
+    (r"\b(collect|gather|obtain)\b.{0,16}\b(still|left|yet|remaining)\b",
+     Intent.DOCUMENTS_MISSING),
+    (r"\bwhat\s+(else\s+)?(do|does|should)\s+(i|we|the\s+customer|"
+     r"the\s+applicant)\s+need\s+to\s+(collect|bring|submit|upload|provide)\b",
+     Intent.DOCUMENTS_MISSING),
+    (r"\bwhat\s+(else\s+)?is\s+(still\s+)?(needed|required|outstanding)\b",
+     Intent.DOCUMENTS_MISSING),
+    (r"\bwhat\s+(else\s+)?(do|should)\s+i\s+(need|have)\s+to\s+ask\s+"
+     r"(for|the\s+customer)\b", Intent.DOCUMENTS_MISSING),
+    # WHY, before WHAT. These resemble the checklist patterns below and
+    # would be swallowed by them; a question asking for the reason must not
+    # be answered with the list.
+    (r"\bwhy\s+(does|do)\s+(the\s+)?(checklist|list|requirements?)\b",
+     Intent.POLICY_EXPLANATION),
+    (r"\bwhy\s+(is|are)\s+(the\s+)?(checklist|list)\b.{0,24}"
+     r"\b(provisional|not\s+final|incomplete|changing)\b",
+     Intent.POLICY_EXPLANATION),
+    (r"\bwhy\s+(is|are|do|does)\b.{0,40}\b(required|needed|asked\s+for|"
+     r"mandatory)\b.{0,30}\b(for\s+this|on\s+this|here)\b",
+     Intent.POLICY_EXPLANATION),
+    (r"\b(which|what)\s+(policy|rule|rules)\b.{0,30}"
+     r"\b(applied|apply|applies|used)\b", Intent.POLICY_EXPLANATION),
+    (r"\b(explain|show\s+me)\s+(the\s+)?(policy|rules?)\b.{0,24}"
+     r"\b(checklist|documents?|case|application)\b",
+     Intent.POLICY_EXPLANATION),
+    (r"\bwhat\s+(policy|rule|version)\b.{0,24}\b(is|was)\s+(this|it)\b",
+     Intent.POLICY_EXPLANATION),
+    (r"\bwhat\s+else\s+(do\s+you|does\s+the\s+system)\s+need\s+to\s+know\b",
+     Intent.POLICY_EXPLANATION),
+
+    # The checklist patterns come FIRST. "Show me the document checklist" also
+    # matches the generic show/list-documents pattern below, and whichever is
+    # listed first wins -- so the more specific question has to be.
+    (r"\b(document|documents)\s+checklist\b", Intent.DOCUMENTS_REQUIRED),
+    (r"\b(what|which)\s+documents?\s+(are\s+|is\s+)?(required|needed|do\s+(we|i)\s+need)\b",
+     Intent.DOCUMENTS_REQUIRED),
+    (r"\b(show|list)\s+.{0,25}\bchecklist\b", Intent.DOCUMENTS_REQUIRED),
+    (r"\b(which|what)\s+documents?\s+(have\s+been\s+)?(uploaded|collected|received|submitted)\b",
+     Intent.DOCUMENTS_UPLOADED),
+    # WHAT WE ALREADY HAVE (audit 2026-10-11): "which documents did we already collect?" is the uploaded list
+    (r"\b(which|what)\s+(documents?|docs|papers)\s+(did|have|has)\s+(we|i|you|they|the\s+customer)\s+"
+     r"(already\s+)?(collect\w*|upload\w*|receiv\w*|got|gotten|submit\w*)\b"
+     r"|\bwhat\s+have\s+(we|i)\s+(already\s+)?(collected|received|got)\b",
+     Intent.DOCUMENTS_UPLOADED),
+    (r"\b(show|list)\s+.{0,20}\bdocuments?\b", Intent.DOCUMENTS_UPLOADED),
+    # AN ADVERB DOES NOT CHANGE THE QUESTION. "What documents are
+    # STILL pending" fell through this pattern to UNKNOWN and was
+    # answered out of the handbook -- policy text, about no case,
+    # to somebody asking what is outstanding on the one in front
+    # of them.
+    (r"\b(which|what)\s+documents?\s+(are\s+|is\s+)?(still\s+|currently\s+|yet\s+to\s+be\s+)?(pending|processing|outstanding|awaited|under\s+review|in\s+review)\b",
+     Intent.DOCUMENTS_PENDING),
+    (r"\ball\s+required\s+documents?\s+(available|uploaded|there)\b", Intent.DOCUMENTS_MISSING),
+    (r"\bstatus\s+of\s+(all\s+)?(my|the|these|our)?\s*(documents|docs)\b", Intent.DOCUMENTS_UPLOADED),
+    (r"\b(what|which)\s+(documents|docs)\s+(have|has)\s+(i|we|been)\s+(submitted|uploaded|given|sent)\b",
+     Intent.DOCUMENTS_UPLOADED),
+
+    # pending / next action
+    (r"\bwhat\s+(should|do)\s+i\s+do\s+next\b", Intent.NEXT_ACTION),
+    (r"\bnext\s+(action|step)\b", Intent.NEXT_ACTION),
+    (r"\bwhat\s+should\s+i\s+(ask|collect|complete)\b", Intent.NEXT_ACTION),
+    (r"\bwhat('?s| is)\s+(pending|outstanding|left)\b", Intent.PENDING_ITEMS),
+    (r"\bwhat\s+is\s+blocking\b", Intent.PENDING_ITEMS),
+    # "How can I complete this application?" -- what is still outstanding.
+    (r"\bhow\s+(can|do|should)\s+(i|we)\s+(complete|finish|finali[sz]e)\b",
+     Intent.PENDING_ITEMS),
+    (r"\bpending\s+(items?|actions?|things?)\b", Intent.PENDING_ITEMS),
+    (r"\bwhat('?s| is)\s+stopping\b", Intent.PENDING_ITEMS),
+
+    # application
+    (r"\b(application|case)\s+(status|state)\b", Intent.APPLICATION_STATUS),
+    # THE SAME QUESTION, WORDED THE WAY PEOPLE WORD IT.
+    #
+    # The pattern above needs "application status" side by side, so
+    # "what is the status OF MY application" missed it, fell to
+    # UNKNOWN, and was handed to the knowledge base -- which
+    # answered confidently, out of the handbook, about no case in
+    # particular. An officer asking what is happening with a file
+    # got a paragraph of process documentation.
+    (r"\b(status|state|progress|update)\b[^?]{0,30}\b(of|on|for|with)\b[^?]{0,20}\b(my|the|this|his|her|their)?\s*(application|case|loan|file)\b",
+     Intent.APPLICATION_STATUS),
+    (r"\bwhat\s+(is|\'s)\s+happening\b[^?]{0,30}\b(application|case|loan|file)\b",
+     Intent.APPLICATION_STATUS),
+    # A BARE "what is the status?" IS ABOUT THE CASE IN HAND. The
+    # request carries an applicant and a case; there is nothing
+    # else it could be asking about.
+    (r"^\s*what\s+(is|\'s)\s+the\s+(current\s+)?(status|state)\s*\??\s*$",
+     Intent.APPLICATION_STATUS),
+    # A DOCUMENT NAMED WITH A STATUS WORD, OR ALONE. "pan status",
+    # "bank statement status", "my pan?" -- the officer names the
+    # document and wants to know where it stands.
+    (r"^\s*(is\s+)?(my|the|this)?\s*%s(\s+card)?\s+(status|verified|verification)\b" % _DOC_TYPES,
+     Intent.DOCUMENT_VERIFICATION),
+    (r"^\s*(my|the|this)?\s*%s(\s+card)?\s*\??\s*$" % _DOC_TYPES,
+     Intent.DOCUMENT_VERIFICATION),
+    # "address proof pending?" -- is this document still outstanding.
+    (r"^\s*(is\s+)?(my|the)?\s*%s\s+(still\s+)?(pending|missing|outstanding)\b" % _DOC_TYPES,
+     Intent.DOCUMENTS_PENDING),
+    # "What exactly is wrong?" asked against a case is about that case.
+    (r"^\s*what\s+(exactly\s+)?(is|'s)\s+(wrong|the\s+(problem|issue))\s*\??\s*$",
+     Intent.CASE_HISTORY),
+    (r"\bwhat\s+(exactly\s+)?(is|'s)\s+wrong\s+with\s+(my|the|this)\s+documents?\b",
+     Intent.DOCUMENT_VERIFICATION),
+    # "Are my documents verified" is a question about the documents
+    # on this case, not about what verification means.
+    (r"\b(are|is|have|has)\b[^?]{0,20}\bdocuments?\b[^?]{0,20}\b(verified|verif\w+|checked|cleared|passed)\b",
+     Intent.DOCUMENT_VERIFICATION),
+    (r"\bwhat('?s| is)\s+the\s+(application|case)\s+status\b", Intent.APPLICATION_STATUS),
+    # THE BARE "stage" CATCH-ALL IS GONE. It took every sentence carrying the
+    # word -- "what documents are mandatory for this stage?" answered with
+    # the case's stage. A stage word is now a REFERENT in the semantic
+    # frame; which stage the case is at is asked through the frame's
+    # CURRENT_STAGE task (or the explicit _CURRENT_STAGE shapes above).
+    (r"\bwhere\s+is\s+(this|the)\s+application\b", Intent.APPLICATION_STAGE),
+    # "where is this file sitting / parked / right now" -- where it is in the process (held-out eval, 2026-10-12)
+    (r"\bwhere\s+(is|does)\s+(this|the|my)\s+(file|case|loan)\s+(sitting|sit|lying|parked|now|currently|right\s+now|"
+     r"at\s+the\s+moment)\b", Intent.APPLICATION_STAGE),
+    # PROGRESS IS THE STAGE (audit 2026-10-11): "how far along is this application?" / "what's the progress on
+    # this case?" -- not the application form's details
+    (r"\bhow\s+far\s+along\s+(is|has)\s+(this|the)\s+(case|application|file)\b"
+     r"|\bhow\s+far\s+(has|have|is|did)\s+(this|the)\s+(case|application|file)\b"
+     r"|\b(progress)\b\s+(on|of|for)\s+(this|the|my)\s+(case|application|file|loan)\b",
+     Intent.APPLICATION_STAGE),
+    # A STATUS QUESTION ABOUT ONE'S OWN CASE, IN THE REMAINING WORDINGS.
+    #
+    # "Where does my application stand", "what is my application's
+    # status", "where is my case", "how is my loan doing" matched none
+    # of the patterns above, fell to UNKNOWN, and the knowledge
+    # fallback answered them confidently out of the handbook -- a
+    # paragraph about policy versions, published as FOS_KNOWLEDGE with
+    # no tool run, to an officer asking where one case stands. Every
+    # pattern here needs an owner word (my / this / our / the) against
+    # application, case, loan or file, so a generic "what are
+    # application statuses" still goes to the handbook.
+    (r"\b(my|this|our|the)\s+(loan\s+)?(application|case|loan|file)(\s*['’]\s*s)?\s+(status|state|progress)\b",
+     Intent.APPLICATION_STATUS),
+    # "Where DOES my application STAND" asks for its status; "where IS my
+    # application" asks where it is -- the stage.
+    (r"\bwhere\s+(does|do)\s+(my|this|our|the)\s+(loan\s+)?(application|case|loan|file)\b",
+     Intent.APPLICATION_STATUS),
+    (r"\bwhere\s+is\s+(my|our)\s+(loan\s+)?(application|case|loan|file)\b",
+     Intent.APPLICATION_STAGE),
+    (r"\bhow\s+is\s+(my|this|our|the)\s+(loan\s+)?(application|case|loan|file)\s+(doing|going|progressing|coming\s+along)\b",
+     Intent.APPLICATION_STATUS),
+    (r"\b(has|have)\s+(my|this|our|the)\s+(loan\s+)?(application|case|loan|file)\s+(moved|progressed|advanced)\b",
+     Intent.APPLICATION_STATUS),
+    (r"\b(loan\s+)?product\s+(selected|chosen|is)\b", Intent.APPLICATION_STATUS),
+    (r"\bwhen\s+was\s+the\s+application\s+created\b", Intent.APPLICATION_STATUS),
+
+    # applicant
+    (r"\bwhat\s+information\s+is\s+(still\s+)?missing\b", Intent.APPLICANT_MISSING_INFO),
+    (r"\bmissing\s+(applicant\s+)?(information|details|fields)\b", Intent.APPLICANT_MISSING_INFO),
+    (r"\b(applicant|customer)\s+(details|information|profile|data)\b", Intent.APPLICANT_DETAILS),
+    # "who's the borrower on this file?" / "who is the customer" = "who is the applicant" (2026-10-12)
+    (r"\bwho(\s+is|'?s)\s+the\s+(applicant|borrower|customer)\b", Intent.APPLICANT_DETAILS),
+    (r"\b(phone|mobile|email|address|name|dob|date\s+of\s+birth)\s+(number\s+)?(of|for)?\b.{0,20}\bapplicant\b",
+     Intent.APPLICANT_DETAILS),
+    (r"\bapplicant('?s)?\s+(phone|mobile|email|address|name)\b", Intent.APPLICANT_DETAILS),
+    (r"\bshow\s+(me\s+)?(the\s+)?applicant\b", Intent.APPLICANT_DETAILS),
+    (r"\bwhat\s+(information|data)\s+have\s+we\s+captured\b", Intent.APPLICANT_DETAILS),
+]
+
+_COMPILED = [(re.compile(p, re.IGNORECASE), i) for p, i in _PATTERNS]
+_COMPILED_OOS = [(re.compile(p, re.IGNORECASE), r) for p, r in _OUT_OF_SCOPE]
+
+
+def names_credit_record(text: str) -> bool:
+    """'what does the credit memo say': a credit DOCUMENT (memo / appraisal / note), never the stage guide
+    -- the credit team's route answers it (live smoke 2026-10-12: it was answered from the Credit stage description)."""
+    return bool(re.search(r"\bcredit\s*(memo|appraisal|note|decision\s+note)s?\b", str(text or ""),
+                          re.IGNORECASE))
+
+
+_DOC_RE = re.compile(_DOC_TYPES, re.IGNORECASE)
+
+#: Spoken forms -> the stored document_type.
+_DOC_ALIASES = {
+    "pan": "PAN",
+    "aadhaar": "AADHAAR", "aadhar": "AADHAAR",
+    "driving licence": "DRIVING_LICENCE", "driving license": "DRIVING_LICENCE",
+    "dl": "DRIVING_LICENCE",
+    "voter id": "VOTER_ID", "voter": "VOTER_ID",
+    "passport": "PASSPORT",
+    "bank statement": "BANK_STATEMENT",
+    # THE STATEMENT IS THE ONLY BANK EVIDENCE THERE IS. "Which bank
+    # account details were verified" names no document, and without
+    # these it was answered from the whole case -- which is how a
+    # question about a statement that passed came back saying the
+    # bank details were not verified.
+    "bank account": "BANK_STATEMENT",
+    "bank details": "BANK_STATEMENT",
+    "account statement": "BANK_STATEMENT",
+    "address proof": "ADDRESS_PROOF",
+    "photo": "PHOTO", "photograph": "PHOTO", "passport size photo": "PHOTO",
+    "signature": "SIGNATURE", "signature photo": "SIGNATURE",
+    "salary slip": "SALARY_SLIP", "pay slip": "SALARY_SLIP",
+    "payslip": "SALARY_SLIP",
+    "itr": "ITR", "income tax return": "ITR",
+    "form 16": "FORM_16",
+    "sale deed": "SALE_DEED",
+    "mark sheet": "MARK_SHEET", "marksheet": "MARK_SHEET",
+    "business proof 1": "BUSINESS_PROOF_1", "business proof1": "BUSINESS_PROOF_1",
+    "business proof 2": "BUSINESS_PROOF_2", "business proof2": "BUSINESS_PROOF_2",
+}
+
+
+def _document_type(message: str) -> str | None:
+    match = _DOC_RE.search(message)
+    if not match:
+        return None
+    key = re.sub(r"\s+", " ", match.group(0).strip().lower())
+    return _DOC_ALIASES.get(key)
+
+
+_MOBILE_RE = re.compile(r"\b(\d{10})\b")
+_EMAIL_RE = re.compile(r"\b([\w.+-]+@[\w-]+\.[\w.]+)\b")
+
+
+def _write_fields(message: str) -> dict[str, str]:
+    """
+    Values the FOS stated in the message, for a proposed write.
+
+    Extracted here so the proposal can be shown back for confirmation. Nothing
+    is applied from this: the write tool is called with these values only
+    after the FOS confirms.
+    """
+    fields: dict[str, str] = {}
+    mobile = _MOBILE_RE.search(message)
+    if mobile and re.search(r"\b(phone|mobile|number|contact)\b", message, re.I):
+        fields["mobile"] = mobile.group(1)
+    email = _EMAIL_RE.search(message)
+    if email:
+        fields["email"] = email.group(1)
+    return fields
+
+
+#: Asking what something MEANS, rather than what happened.
+#:
+#: WHY THIS IS A GUARD AND NOT JUST PATTERN ORDER. The case patterns
+#: below deliberately catch "what is the mismatch in my documents", and
+#: a rule that catches that will catch "what is a document mismatch"
+#: unless something stands in the way. The two questions differ by one
+#: article and by everything else: one wants this applicant's PAN and
+#: bank statement, the other wants the handbook.
+_DEFINITION_RE = re.compile(
+    r"\bwhat\s+(do(es)?|did)\b[^?]{0,40}\bmean\b"
+    r"|\bwhat\s+(is|are)\s+(a|an)\b"
+    r"|\bhow\s+do(es)?\b[^?]{0,40}\bwork\b"
+    r"|\bwhat\s+are\s+(the\s+)?(different|possible|various)?\s*"
+    r"[a-z ]{0,30}\b(statuses|stages|types|states)\b"
+    r"|\bdefinition\s+of\b"
+    r"|\bmeaning\s+of\b"
+    # A BARE TERM. "What is FOIR?" and "what is eligibility?" ask what
+    # the word means; "what is my eligibility?" asks about this case and
+    # does not match -- nothing may stand between the verb and the term.
+    r"|^\s*what\s+(is|are)\s+(pan|kyc|foir|ltv|emi|eligibility|"
+    r"affordability|aadhaa?r|income\s+consistency|"
+    r"(pan\s+)?name\s+mismatch)\s*\??\s*$"
+    # A BARE DOCUMENT NAME. "What is address proof?" asks what the thing
+    # is; "what is my address proof status" has a word in between.
+    rf"|^\s*what\s+(is|are)\s+(an?\s+)?{_DOC_TYPES}(\s+card)?\s*\??\s*$",
+    re.IGNORECASE,
+)
+
+
+def asks_for_a_definition(text: str) -> bool:
+    """Whether this asks what a thing is, rather than what happened here."""
+    return bool(_DEFINITION_RE.search(text or ""))
+
+
+#: "my application", "this case", "our loan file" -- the question names
+#: the case in hand as its subject.
+_OWN_CASE_RE = re.compile(
+    r"\b(my|this|our)\s+(loan\s+)?(application|case|loan|file)s?\b",
+    re.IGNORECASE,
+)
+
+
+def asks_about_own_case(text: str) -> bool:
+    """Whether the question is about the caller's own case, by its words."""
+    return bool(_OWN_CASE_RE.search(text or ""))
+
+
+_DOCUMENT_STATUS_LIST = re.compile(
+    r"\b(which|what|any|list|show)\b[^?]{0,12}\b(documents?|docs?|ones)\b\s+"
+    r"(are|is|were|was|have\s+been|has\s+been|got)\s+(still\s+|currently\s+)?"
+    r"(?P<status>verified|approved|accepted|cleared|done|complete|completed|under\s+review|in\s+review|"
+    r"being\s+reviewed|rejected|declined|failed)\b(?!\s+(as|for|in\s+place\s+of)\b)",
+    re.IGNORECASE,
+)
+
+_STATUS_WORDS_TO_FILTER = {
+    "verified": "VERIFIED", "approved": "VERIFIED", "accepted": "VERIFIED",
+    "cleared": "VERIFIED", "done": "VERIFIED", "complete": "VERIFIED", "completed": "VERIFIED",
+    "under review": "REVIEW", "in review": "REVIEW", "being reviewed": "REVIEW",
+    "rejected": "REJECTED", "declined": "REJECTED", "failed": "REJECTED",
+}
+
+
+#: "Why was my PAN rejected?" / "why did the bank statement fail?" -- a
+#: named document and a failure word.
+_DOCUMENT_REJECTED = re.compile(
+    rf"\bwhy\b.{{0,40}}\b{_DOC_TYPES}\b.{{0,30}}\b(rejected|declined|failed|fail|reject)\b"
+    rf"|\b{_DOC_TYPES}\b.{{0,20}}\b(rejected|declined|failed|fail|reject)\b.{{0,12}}\bwhy\b"
+    # "ye PAN kyun fail hua" -> "this pan why fail hua"
+    rf"|\b{_DOC_TYPES}\b.{{0,20}}\bwhy\b.{{0,15}}\b(rejected|declined|failed|fail|reject)\b",
+    re.IGNORECASE)
+#: ...unless it is the loan or application that was rejected.
+_LOAN_REJECTED = re.compile(
+    r"\b(loan|application|case|file)\s+(was\s+|is\s+|been\s+|got\s+)?"
+    r"(rejected|declined)\b", re.IGNORECASE)
+
+def _tail_is_about_this_case(text: str) -> bool:
+    """
+    "... and what is holding it up?" -- a second clause bound to THIS case by
+    a pronoun and read confidently by the frame as a case question is not a
+    knowledge tail; the whole question is one case question.
+    """
+    from shared.applicant.copilot.semantics import semantic_frame
+
+    match = _MIXED_TAIL.search(text)
+    if not match:
+        return False
+    tail = re.sub(r"^[\s,;]*((and|also|plus)\s+)?", "", text[match.start():], flags=re.IGNORECASE)
+    if not re.search(r"\b(it|this|that|my|mine|mera|meri|mere|माझ|मेर)\b", tail, re.IGNORECASE):
+        return False
+    from shared.applicant.copilot.answering import profile as _profile
+
+    if _profile.detect(tail) is not None:
+        return True                                    # "... and what is my dob"
+    frame = semantic_frame.parse(tail)
+    return frame.is_confident() and not semantic_frame.is_knowledge(frame)
+
+
+def _mixed_with_knowledge_tail(text: str) -> Classification | None:
+    """
+    MIXED, when the message is a case question AND a knowledge question.
+
+    STRUCTURAL, NOT A PHRASE LIST: the message is split at the clause the
+    MIXED tail marks ("and what ...", ", which ..."), the first clause is
+    classified by the same rules as any question, and the second must be
+    a knowledge question by the same knowledge rules. Neither half is
+    guessed: a first clause that is not a case question, or a second that
+    asks something downstream, leaves the message to the rules below.
+    """
+    match = _MIXED_TAIL.search(text)
+    if not match or match.start() == 0:
+        return None
+    head = text[:match.start()].strip(" ,;")
+    tail = re.sub(r"^[\s,;]*((and|also|plus)\s+)?", "", text[match.start():],
+                  flags=re.IGNORECASE)
+    if not head or not tail:
+        return None
+
+    # THE SECOND CLAUSE IS KNOWLEDGE, and not a downstream question
+    # dressed as one ("... and what is the KYC decision?").
+    knowledge = (asks_for_a_definition(tail) or looks_like_knowledge(tail)
+                 or bool(_STRONG_KNOWLEDGE.search(tail))
+                 or _asks_how_a_stage_works(tail)
+                 # "X ka matlab kya hai" normalises to "what is x means what"
+                 or bool(re.search(r"\b(means?|meaning|matlab|arth)\b", tail, re.IGNORECASE)))
+    if not knowledge:
+        return None
+    if not _asks_how_a_stage_works(tail) and any(
+            pattern.search(tail) for pattern, _ in _COMPILED_OOS):
+        return None
+
+    case = classify(head)
+    if case.intent is Intent.UNKNOWN and stage_in(head) is not None \
+            and re.search(r"\b(my|mera|meri|mere|our)\b", head, re.IGNORECASE):
+        # "why is my application (in) CPA" -- where the case stands
+        case = Classification(Intent.APPLICATION_STAGE, matched_on="stage_history")
+    if case.intent not in _MIXED_BASES:
+        return None
+    return Classification(Intent.MIXED, document_type=case.document_type,
+                          matched_on=f"mixed:{case.matched_on}",
+                          base_intent=case.intent)
+
+
+_DOC_STATUS = re.compile(
+    rf"\bstatus\s+(of|for)\s+(my\s+|the\s+|our\s+)?{_DOC_TYPES}\b"
+    rf"|\b{_DOC_TYPES}\s+((ka|ki|ke|cha|chi|che)\s+)?(status|kya\s+hua|kay\s+zala)\b"
+    rf"|\bwhat\s+(has\s+)?happened\s+(to|with)\s+(my\s+|the\s+|our\s+)?{_DOC_TYPES}\b",
+    re.IGNORECASE)
+#: ...unless it asks for the document's contents, a reason, or a definition.
+_NOT_STATUS = re.compile(r"\b(details?|number|name|why|kyun|kyu|kyon|reject\w*|mean\w*|required|upload)\b",
+                         re.IGNORECASE)
+
+#: WHY ONE NAMED DOCUMENT IS IN REVIEW / REJECTED: "why is the signature under review?"
+#: is that document's verification reason -- the case-level "why in review" rule answered
+#: it with the CASE's hold (a name mismatch) instead (2026-10-06).
+_DOC_WHY = re.compile(
+    rf"\b(why|kyun|kyu|kyon|kaahe|reason)\b[^?]{{0,40}}\b{_DOC_TYPES}\b[^?]{{0,40}}"
+    rf"\b(review|pending|reject\w*|fail\w*|flag\w*|hold|stuck|not\s+verified)\b"
+    rf"|\b{_DOC_TYPES}\b[^?]{{0,30}}\b(review|pending|reject\w*|fail\w*)\b[^?]{{0,15}}\b(why|kyun|kyu|kyon)\b",
+    re.IGNORECASE)
+
+#: WHICH STAGE THE CASE IS AT: "case fos me hai?", "is the case at FOS?", "case kis stage me hai?"
+#: (2026-10-06: UNKNOWN, answered with the review reason).
+_CASE_STAGE_NAMES = r"(fos|cpa|credit|rcu|legal|technical|sanction|disburs\w*)"   # not _STAGE_WORDS (a dict)
+_CASE_STAGE = re.compile(
+    rf"\b(case|application|file|loan)\b[^?]{{0,25}}\b{_CASE_STAGE_NAMES}\b[^?]{{0,12}}"
+    rf"\b(me|mein|main|madhe|madhye|at|in|par|pe|stage)\b"
+    rf"|\b(is|are)\s+(the|my|this|our)\s+(case|application|file|loan)\s+(at|in)\s+(the\s+)?{_CASE_STAGE_NAMES}\b"
+    rf"|\b(kis|which|what|kaun\s*s[ae]|konsy?a|kuthlya)\s+stage\b"
+    rf"|\bstage\s+(kya|kaunsa|konta|kuthla)\b",
+    re.IGNORECASE)
+
+#: WHAT A NAMED DOCUMENT SAYS: "PAN se kya details mila?", "PAN me kya likha hai?",
+#: "PAN ki jaankari", "what did you read from my PAN?", "PAN extract kya hua?" -- its
+#: released extraction (2026-10-06: UNKNOWN, so the extracted fields were never shown).
+_DOC_DETAILS = re.compile(
+    rf"\b{_DOC_TYPES}\b[^?]{{0,25}}\b(details?|jaankari|jankari|maahiti|mahiti|data|info|information|"
+    rf"likha|likhi|likhe|extract\w*|padh\w*|fields?)\b"
+    rf"|\b(what|kya)\b[^?]{{0,25}}\b(read|extract\w*|padh\w*|found|mila|mili|mile)\b[^?]{{0,20}}\b{_DOC_TYPES}\b"
+    rf"|\b{_DOC_TYPES}\b[^?]{{0,12}}\b(se|me|mein|madhe)\s+(kya|kay)\b[^?]{{0,20}}\b(mila|mili|mile|hai|aahe|likha)\b",
+    re.IGNORECASE)
+#: EVERY UPLOADED DOCUMENT'S DETAILS: "saare documents ki details", "all document details",
+#: "documents ka data dikhao", "sab docs me kya likha hai" (2026-10-06: a clarification).
+_ALL_DOCS_DETAILS = re.compile(
+    r"\b(documents?|docs?|kagaz\w*|kagadpatr\w*|dastavez\w*)\b[^?]{0,20}"
+    r"\b(details?|data|jaankari|jankari|maahiti|mahiti|info|information|likha|extract\w*|fields?)\b",
+    re.IGNORECASE)
+
+#: ...but not a verification or status question about it
+_NOT_DETAILS = re.compile(r"\b(verif\w*|status|why|kyun|kyu|reject\w*|review|pending|upload\w*|required|need\w*)\b",
+                          re.IGNORECASE)
+
+#: "what about PAN?" with no earlier turn to follow up on -- that document's status
+_WHAT_ABOUT_DOC = re.compile(rf"^\s*(what|how)\s+about\s+(the\s+|my\s+|our\s+)?{_DOC_TYPES}\s*\??\s*$",
+                             re.IGNORECASE)
+
+
+def classify(message: str) -> Classification:
+    """Decide what the message is asking for. Deterministic; no model."""
+    text = (message or "").strip()
+    if not text:
+        return Classification(Intent.UNKNOWN, confidence="low")
+
+    # ONE NAMED DOCUMENT'S STATUS: "what is the status of my bank statement?",
+    # "bank statement ka kya hua?", "what happened to my bank statement?" -- that
+    # document's verification result (2026-10-06: UNKNOWN / case history).
+    if _DOC_STATUS.search(text) and not _NOT_STATUS.search(text):
+        return Classification(Intent.DOCUMENT_VERIFICATION, confidence="high",
+                              document_type=_document_type(text), matched_on="document_status")
+    if _ALL_DOCS_DETAILS.search(text) and not _NOT_DETAILS.search(text) and not _document_type(text):
+        return Classification(Intent.DOCUMENT_DETAILS, confidence="high", matched_on="all_documents_details")
+    if _DOC_DETAILS.search(text) and not _NOT_DETAILS.search(text) and _document_type(text):
+        return Classification(Intent.DOCUMENT_DETAILS, confidence="high",
+                              document_type=_document_type(text), matched_on="document_details")
+    if _DOC_WHY.search(text) and _document_type(text):
+        return Classification(Intent.DOCUMENT_VERIFICATION, confidence="high",
+                              document_type=_document_type(text), matched_on="document_why")
+    if _WHAT_ABOUT_DOC.match(text) and _document_type(text):
+        return Classification(Intent.DOCUMENT_VERIFICATION, confidence="high",
+                              document_type=_document_type(text), matched_on="what_about_document")
+    # A DEFINITION TAIL ("... CPA mein kyun hai aur KYC review ka matlab kya hai?") is split BEFORE this stage
+    # rule too -- it took the whole message on its first half (the same check as below, moved ahead of it)
+    if _CASE_STAGE.search(text) and re.search(r"\b(means?|meaning|matlab|arth)\b", text, re.IGNORECASE):
+        early = _mixed_with_knowledge_tail(text)
+        if early is not None:
+            return early
+    if _CASE_STAGE.search(text):
+        return Classification(Intent.APPLICATION_STAGE, confidence="high", matched_on="case_stage")
+
+    # BEFORE THE OUT-OF-SCOPE RULE, and only just. That rule routes
+    # anything containing "rcu" or "fraud" downstream so the FOS stage
+    # cannot answer a fraud question from the FOS handbook -- correct,
+    # and it would also swallow "what does RCU check", which is a
+    # question about the process rather than about this case. The
+    # match below requires BOTH a stage name and process phrasing, so
+    # "is this case fraudulent" is untouched.
+    # WHERE THE CASE HAS BEEN. Before the stage-process and out-of-scope
+    # rules, which would otherwise take "when did it move to RCU" on the
+    # stage name alone. Answered from the recorded stage history.
+    # WHICH STAGE THE CASE IS AT NOW. First of the stage rules: the
+    # history and process rules below both key on the word "stage" and
+    # used to take "what is my stage?" as a question about how a stage
+    # works.
+    # A CASE QUESTION WITH A DEFINITION ATTACHED ("... CPA mein kyun hai aur
+    # KYC review ka matlab kya hai?") is split before the stage rules, which
+    # would otherwise answer the whole message from its first half.
+    if re.search(r"\b(means?|meaning|matlab|arth)\b", text, re.IGNORECASE):
+        early = _mixed_with_knowledge_tail(text)
+        if early is not None:
+            return early
+
+    if asks_current_stage(text):
+        return Classification(Intent.APPLICATION_STAGE,
+                              matched_on="current_stage")
+
+    if asks_stage_history(text):
+        return Classification(Intent.APPLICATION_STAGE,
+                              matched_on="stage_history")
+
+    # WHAT FOLLOWS FROM A GAP, from the recorded readiness.
+    if asks_impact(text):
+        return Classification(Intent.READINESS, matched_on="impact")
+
+    if looks_like_stage_process(text) and not names_credit_record(text):
+        return Classification(Intent.STAGE_PROCESS, matched_on="stage")
+
+    # AND THE SAME QUESTION ASKED ABOUT A CASE KEEPS ITS CASE ROUTE.
+    #
+    # "Why is this case under review and what does the RCU stage
+    # check?" is a case question with a process clause -- the MIXED
+    # route below is exactly what answers it. The out-of-scope rule
+    # would take it first, on the word "rcu" alone, and reply that a
+    # downstream process handles it.
+    #
+    # NARROW ON PURPOSE. Standing aside requires what/which/how, a
+    # stage name AND a process verb. "Is this case fraudulent" and
+    # "analyse the bank transactions on this case" have none of that
+    # shape and still route downstream, so the boundary that keeps FOS
+    # out of fraud analysis is untouched.
+    asks_process = _asks_how_a_stage_works(text)
+
+    # WHICH DOCUMENTS ARE IN A STATUS. "Which documents were rejected?"
+    # is about uploads on this case, not a lending decision -- but the
+    # out-of-scope rule routes on the word "rejected" alone. Matched
+    # narrowly: a documents noun AND a document status.
+    listed = _DOCUMENT_STATUS_LIST.search(text)
+    if listed:
+        wanted = _STATUS_WORDS_TO_FILTER[
+            re.sub(r"\s+", " ", listed.group("status").lower())]
+        # A document in review is PENDING -- the long-standing contract for
+        # "which documents are under review" -- and is listed on its own.
+        return Classification(
+            Intent.DOCUMENTS_PENDING if wanted == "REVIEW"
+            else Intent.DOCUMENTS_UPLOADED,
+            matched_on="document_status_list", status_filter=wanted)
+
+    # A CASE QUESTION WITH A KNOWLEDGE CLAUSE ATTACHED. Before the rules
+    # below, which read the WHOLE message and would each take it on the
+    # second clause alone: "why is my application under review and what
+    # does KYC mean?" is a definition by its tail, and was answered from
+    # the handbook with the case's reason dropped.
+    split = _mixed_with_knowledge_tail(text)
+    if split is not None:
+        return split
+
+    # WHY ONE DOCUMENT FAILED. "Why was my PAN rejected?" is about a
+    # document on this case -- the out-of-scope rule would route it
+    # downstream as a loan decision, on the word "rejected" alone.
+    if _DOCUMENT_REJECTED.search(text) and not _LOAN_REJECTED.search(text):
+        return Classification(Intent.DOCUMENT_VERIFICATION,
+                              document_type=_document_type(text),
+                              matched_on="document_rejected")
+
+    # "CIBIL kya hai?" ASKS WHAT A TERM MEANS (semantics/terms.py; COPILOT_TERMS_KNOWLEDGE,
+    # default off): answered from the knowledge base, never as a bureau result
+    from shared.applicant.copilot.semantics import terms as _terms
+
+    if _terms.enabled() and _terms.is_definition(text):
+        return Classification(Intent.FOS_KNOWLEDGE, matched_on="lending_term_definition")
+
+    if not asks_process or names_credit_record(text):    # "what does the credit memo say" is not a process question
+        for pattern, route in _COMPILED_OOS:
+            if pattern.search(text):
+                return Classification(
+                    Intent.OUT_OF_SCOPE, route_to=route,
+                    matched_on=pattern.pattern[:60],
+                )
+
+    # THE CALLER'S OWN RECORDED DETAILS: one field from the FOS form, or
+    # "what have I submitted". Before the knowledge rules, which took "what
+    # name did I provide?" as a question about name matching, and before the
+    # generic case patterns, which took "what's my loan amount?" as status.
+    # A document named ("the name on my PAN") is left to DOCUMENT_DETAILS.
+    from shared.applicant.copilot.answering import profile
+
+    # THE RECORDED FINDINGS AND THE RECORDED KYC RESULT: case memory, read
+    # as recorded (case_memory_facts). Before the case patterns, which took
+    # "what findings were recorded" as a history explanation and "what is
+    # my KYC score" as nothing at all.
+    if _FINDINGS_ASK.search(text) and not asks_for_a_definition(text):
+        return Classification(Intent.CASE_FINDINGS, matched_on="findings")
+    if _APPLICATION_MATCH.search(text) and not asks_for_a_definition(text):
+        return Classification(Intent.KYC_RESULT, matched_on="application_match", fields={"want": "application"})
+    if _KYC_ASK.search(text) and not asks_for_a_definition(text) \
+            and not re.search(r"\bdecision\b", text, re.I):
+        return Classification(Intent.KYC_RESULT, matched_on="kyc",
+                              fields={"want": "mismatch" if re.search(r"\bmismatch|\bvs\.?\b|versus|compared",
+                                                                    text, re.I) else kyc_want(text)})
+
+    if re.fullmatch(r"\s*(case\s+|my\s+|the\s+)?(history|timeline|journey)\s*[?.!]*\s*", text, re.I) \
+            or (_CASE_HAPPENED.search(text) and stage_in(text) is None):
+        return Classification(Intent.CASE_HISTORY, matched_on="history")
+    identity = profile.detect(text)
+    if identity is not None and identity.fields and all(
+            f in ("aadhaar_number", "pan_number", "bank_account_number") for f in identity.fields):
+        return Classification(Intent.APPLICANT_PROFILE, matched_on="profile",
+                              fields={"field": identity.field})
+
+    if _document_type(text) is None:
+        if profile.COMPLETENESS.search(text):
+            return Classification(Intent.APPLICANT_MISSING_INFO,
+                                  matched_on="basic_details_complete")
+        asked = profile.detect(text)
+        if asked is not None:
+            return Classification(Intent.APPLICANT_PROFILE, matched_on="profile",
+                                  fields={"field": asked.field})
+
+    # A STRONG knowledge marker outranks the case patterns.
+    #
+    # "What documents are required for a personal loan?" names a product, so
+    # it is asking what the product requires -- policy -- not what THIS case
+    # is missing. The generic case pattern matched it first and answered from
+    # the case, which is a different question and a different answer.
+    if _STRONG_KNOWLEDGE.search(text):
+        return Classification(Intent.FOS_KNOWLEDGE, matched_on="product")
+
+    # A DEFINITION IS A HANDBOOK QUESTION, whatever it is a definition
+    # of. "What does document mismatch mean" is answered from the
+    # knowledge base; "what exactly is the mismatch in my documents" is
+    # answered from the case, and the patterns below take it.
+    if asks_for_a_definition(text):
+        return Classification(Intent.FOS_KNOWLEDGE, matched_on="definition")
+
+    for pattern, intent in _COMPILED:
+        if pattern.search(text):
+            # A case question with a second clause asking what/which/how is
+            # asking two things. Answering only the first leaves the officer
+            # with "three documents are missing" and no idea what satisfies
+            # them; answering only the second recites policy at someone who
+            # asked about a specific case.
+            if intent not in WRITE_INTENTS and _MIXED_TAIL.search(text)                     and not _tail_is_about_this_case(text):
+                return Classification(
+                    Intent.MIXED,
+                    document_type=_document_type(text),
+                    matched_on=pattern.pattern[:60],
+                    base_intent=intent,
+                )
+            return Classification(
+                intent,
+                document_type=_document_type(text),
+                matched_on=pattern.pattern[:60],
+                fields=_write_fields(text) if intent in WRITE_INTENTS else {},
+            )
+
+    # Nothing about this case matched. It may still be a question about how
+    # the FOS stage works, which the knowledge base answers.
+    if looks_like_knowledge(text):
+        return Classification(Intent.FOS_KNOWLEDGE, matched_on="knowledge")
+
+    # UNKNOWN is not the end of the road. The knowledge base gets a chance,
+    # and its own confidence threshold decides whether there is an answer --
+    # which is a better judge than a list of phrasings somebody has to keep
+    # extending. If retrieval is not confident, the agent says so.
+    return Classification(Intent.UNKNOWN, confidence="low")
+
+
+#: A loan-decision word: with none of these, "was anything rejected?" asks
+#: about the documents on the case, which is what gets rejected here.
+_DECISION_WORDS = re.compile(
+    r"\b(loan|application|case|file|approv\w*|sanction\w*|disburs\w*|eligib\w*|decision|"
+    r"decid\w*|credit|limit|amount|rate|emi|tenure)\b", re.IGNORECASE)
+
+
+#: Where a compound question joins its two halves.
+_JOIN = re.compile(r"\s*(?:,\s*)?(?:\b(?:and|also|plus|aur|ani|aani)\b|(?<!\S)(?:और|आणि)(?!\S))\s+(?:also\s+)?"
+                   r"|\s*;\s*|\s*,\s+(?=what|which|how|is|are|kya|kaun|क्या|काय)",
+                   re.IGNORECASE)
+
+#: Intents a compound part may NOT be: a knowledge tail is MIXED's business,
+#: an unrecognised or refused part keeps the whole question on its own route.
+_NOT_COMPOUND = frozenset({"FOS_KNOWLEDGE", "STAGE_PROCESS", "UNKNOWN", "OUT_OF_SCOPE",
+                           "MIXED", "GUARDRAIL_BLOCKED", "CASE_HISTORY"})
+
+#: Case intents a compound half may be (not knowledge, not a refusal).
+_COMPOUND_CASE: frozenset = frozenset()   # set below, once PLANS exists
+
+
+_QUESTION_CUE = re.compile(r"\b(what|which|how|is|are|do|does|did|can|should|will|kya|kaunsa|"
+                           r"kaunse|kab|kaise|क्या|काय|कोणत|कौन|कब)\b|\?", re.IGNORECASE)
+
+
+def _part_as_question(part: str) -> str:
+    """A compound part that is only a noun phrase ("my stage") asked as one."""
+    text = part if part.endswith("?") else part + "?"
+    if _QUESTION_CUE.search(part) or len(part.split()) > 4:
+        return text
+    if len(part.split()) == 1:
+        return f"what is my {part}?"          # "name" -> the caller's own
+    return f"what is {part}?"
+
+
+def _share_predicate(pieces: list[str]) -> list[str]:
+    """
+    MASTER SPEC section 5 (multi-question): "PAN aur bank statement ka status batao" -- the leading bare nouns
+    share the LAST part's predicate ("ka status batao"): "PAN ka status batao", "bank statement ka status
+    batao". The linker words are config (chatbot.compound.shared_predicate_linkers).
+    """
+    from shared.applicant import config
+
+    linkers = [str(w).lower() for w in (config.chatbot("compound") or {}).get("shared_predicate_linkers") or []]
+    if len(pieces) < 2 or not linkers:
+        return pieces
+    last = pieces[-1].split()
+    at = next((i for i, w in enumerate(last) if w.lower() in linkers and 0 < i < len(last) - 0), None)
+    if at is None:
+        return pieces
+    predicate = " ".join(last[at:])
+    bare = [p for p in pieces[:-1] if len(p.split()) <= 3 and not _QUESTION_CUE.search(p)]
+    if len(bare) != len(pieces) - 1:
+        return pieces
+    return [f"{p} {predicate}" for p in pieces[:-1]] + [pieces[-1]]
+
+
+def compound_parts(message: str) -> list[str] | None:
+    """
+    "What is my loan amount, what stage am I in, and what is pending?" -> its
+    parts, when EVERY part is a case question this desk answers on its own
+    and at least two of them ask different things. Each part is then
+    answered exactly as if asked alone (same authorisation, tools and
+    deterministic answer) and the answers are joined. A knowledge tail, an
+    unrecognised part, a refusal or a write keeps the whole question on its
+    own route (MIXED, clarification, guardrail).
+    """
+    text = " ".join(str(message or "").split())
+    # A MIXED question (a case half and a knowledge tail) and a case-history
+    # question ("what is wrong and what should I upload?", whose recorded
+    # answer already carries the pending step) keep their own routes.
+    whole = understand(text, has_case=True)
+    if whole.intent in (Intent.MIXED, Intent.CASE_HISTORY):
+        return None
+    # "give me my case and application id" names two RECORDED FIELDS: one
+    # profile answer carries both (profile.detect), not two tool plans.
+    from shared.applicant.copilot.answering import profile as _profile
+
+    asked = _profile.detect(text)
+    other_subject = re.search(r"\b(kyc|documents?|docs?|pending|stage|status|verified|"
+                              r"co[\s-]?applicant'?s?)\b", text, re.I)
+    if asked is not None and (len(asked.fields) >= 2 or asked.field.startswith("ALL")) \
+            and not other_subject:
+        return None
+    from shared.applicant.copilot.semantics import short_query as _short
+
+    pieces = [p.strip(" ,;?.!") for p in _JOIN.split(text)]
+    pieces = _share_predicate([p for p in pieces if p])
+    pieces = [p for p in pieces
+              if p and (len(p.split()) >= 2 or _short.short_head(p) is not None
+                        or _profile.detect(f"what is my {p}") is not None)]
+    if len(pieces) < 2 or len(pieces) > 4:
+        return None
+    # "the applicant and the co-applicant" is ONE subject (both parties),
+    # not two questions: a split through it leaves a half with no question.
+    from shared.applicant.copilot.routing import subjects as _subjects_both
+
+    if _subjects_both.mentioned(text) is _subjects_both.Kind.BOTH             and _subjects_both.mentioned(pieces[0]) is not _subjects_both.Kind.BOTH             and not any(_subjects_both.mentioned(p) is _subjects_both.Kind.BOTH for p in pieces):
+        return None
+    # "is my PAN verified? and co-applicant ka bhi?": a later part that only
+    # names a person ("and the co-applicant too") asks the SAME question about
+    # them -- one question about both people, not a second question with no ask.
+    from shared.applicant.copilot.semantics import semantic_frame as _frame_of
+
+    for p in pieces[1:]:
+        if _subjects_both.mentioned(p) in (_subjects_both.Kind.CO, _subjects_both.Kind.BOTH):
+            f = _frame_of.parse(p)
+            if f.task is _frame_of.Task.UNKNOWN and f.object is _frame_of.Object.NONE                     and _profile.detect(p) is None and not _QUESTION_CUE.search(p):
+                return None
+    questions = [_part_as_question(p) for p in pieces]
+    # "the co-applicant's name and KYC status": a later part that is only a
+    # noun phrase names no one of its own -- it is about the party named
+    # before it. A part that names a party, or says "my", keeps its own.
+    from shared.applicant.copilot.routing import subjects as _subjects
+
+    carried = _subjects.mentioned(pieces[0])
+    if carried in (_subjects.Kind.CO, _subjects.Kind.BOTH):
+        phrase = "for the co-applicant" if carried is _subjects.Kind.CO else "for both applicants"
+        possessive = "the co-applicant's" if carried is _subjects.Kind.CO else "both applicants'"
+        for i in range(1, len(pieces)):
+            own = pieces[i]
+            if _subjects.mentioned(own) is not None or re.search(
+                    r"\b(my|mine|me|i|mera|meri|mere|our)\b", own, re.I):
+                continue
+            if re.search(r"\b(their|unka|unki|unke)\b", questions[i], re.I):
+                questions[i] = re.sub(r"\b(their|unka|unki|unke)\b", possessive, questions[i],
+                                      count=1, flags=re.I)
+            elif len(own.split()) <= 4 and not _QUESTION_CUE.search(own):
+                questions[i] = f"{questions[i].rstrip('?')} {phrase}?"
+    seen: list[Intent] = []
+    for position, question in enumerate(questions):
+        part = understand(question, has_case=True)
+        later_history = part.intent is Intent.CASE_HISTORY and position > 0
+        if (part.intent.value in _NOT_COMPOUND and not later_history) \
+                or part.intent in WRITE_INTENTS \
+                or (part.intent not in _COMPOUND_CASE and not later_history):
+            return None
+        # EACH PART IS A QUESTION IN ITS OWN RIGHT: read by the frame or a
+        # structural rule, never guessed by word overlap ("At this point in
+        # my application" is a preamble, not a question).
+        if getattr(part, "understanding", None) == "EXAMPLES":
+            return None
+        # two DOCUMENTS asked the same way ("PAN aur bank statement ka status") are two questions
+        seen.append((part.intent, _subjects.mentioned(question), getattr(part, "document_type", None)))
+    if len(set(seen)) < 2:
+        return None
+    return questions
+
+
+#: The recorded findings / reason codes, by concept.
+_FINDINGS_ASK = re.compile(
+    r"\b(suspicious|suspicion|suspect\w*|gadbad\w*|tamper\w*|sandigdh|shak)\b(?![^?]{0,20}\bfraud)"
+    r"|\b(findings?|reason\s*codes?|red\s+flags?|flags\s+(raised|recorded)|observations?\s+"
+    r"(recorded|noted)|remarks\s+(recorded|noted)|what\s+(was|were|got)\s+recorded|"
+    r"recorded\s+(findings?|reasons?|observations?)|any\s+(findings?|reason\s*codes?|flags?))\b",
+    re.I)
+#: The RECORDED KYC result / score / status -- a possessive or a status word
+#: with "kyc"; never a bare "what is KYC" (a definition) and never a decision.
+_KYC_ASK = re.compile(
+    r"\b(my|our|mera|meri|mere|this|the\s+case'?s?|applicant'?s?|customer'?s?|their|unka|unki|unke|"
+    r"inka|inki)\s+kyc\b"
+    r"|\babout\s+(the\s+)?kyc\b(?!\s+(process|mean\w*|work\w*))"
+    r"|\bkyc\s+((ki|ka|ke|chi|cha|che)\s+)?(score|result|status|outcome|check|verification|match|comparison|fields?|"
+    r"information|info|details?|issues?|problems?|mismatch\w*|review)\b"
+    # "kyc batao", "kyc dikhao", "kyc sanga" -- show me the KYC (2026-10-05: UNKNOWN)
+    r"|\bkyc\s+(batao|bataiye|batana|dikhao|dikhaiye|sanga|dakhva)\b"
+    r"|\bkyc\s+(done|complete\w*|verified|hua|ho\s+gaya|zala|pass\w*|fail\w*|clear\w*)\b"
+    r"|\b(is|has|was)\s+(the\s+)?kyc\s+(been\s+)?(done|complete\w*|verified|pass\w*|clear\w*)\b"
+    r"|\bkyc\b[^?]{0,25}\b(problem|issue|mismatch\w*|galat|pending|baaki|baki|kya\s+hua)\b"
+    r"|\b(why|kyon|kyu|kyun)\b[^?]{0,30}\bkyc\b(?![^?]{0,20}\b(mean|matter|required|needed|important))"
+    # "KYC kyun fail hua?" -- the why AFTER kyc (2026-10-06: UNKNOWN, answered from the handbook)
+    r"|\bkyc\s+(why|kyon|kyu|kyun)\b"
+    r"|\b(which|what)\s+kyc\s+\w+"
+    # "which fields did not match?", "kya match nahi hua", "what differs between the documents"
+    r"|\b(which|what)\s+(fields?|details?|values?|things?)\b[^?]{0,25}\b(not\s+match\w*|did\s*n[o']?t\s+match|mismatch\w*|differ\w*)\b"
+    r"|\b(kya|what|which|kaun\s*sa|kaunsa|kaun\s*se)\b[^?]{0,20}\bmatch\s+nahi\b"
+    r"|\bwhat\s+(differs|is\s+different)\s+(between|across)\b"
+    r"|\b(what|which)\b[^?]{0,20}\b(is|are)\s+not\s+matching\b"
+    # "why is the name not matching?", "naam match nahi ho raha" -- a detail that disagrees
+    r"|\b(name|naam|naav|dob|date\s+of\s+birth|address|pata|father'?s?\s+name)\b[^?]{0,15}"
+    r"\b(not\s+match\w*|does\s*n[o']?t\s+match|did\s*n[o']?t\s+match|match\s+nahi)\b"
+    # "what is missing / failed in KYC?", "what should I do for KYC?" -- the case's KYC
+    r"|\b(what|kya)\b[^?]{0,20}\b(missing|failed|fail\w*|wrong|left|baaki|baki|galat)\b[^?]{0,12}"
+    r"\b(in|for|with|mein|me)\s+(my\s+|the\s+|our\s+)?kyc\b"
+    r"|\bwhat\s+(should|do|can|must)\s+(i|we)\s+do\s+(for|about|to\s+(clear|fix|complete))\s+(my\s+|the\s+|our\s+)?kyc\b"
+    r"|\b(name|naam|dob|date\s+of\s+birth)\s+mismatch\b|\bmismatch\b[^?]{0,25}\b(kya|what|exactly|details?|batao)\b"
+    r"|\b(pan|bank\s+statement|passport|aadhaa?r)\b[^?]{0,30}\b(vs\.?|versus|compared\s+to|aur)\b[^?]{0,15}"
+    r"\b(pan|bank\s+statement|passport|aadhaa?r)\b[^?]*\b(name|naam|show|says?)\b"
+    r"|\b(name|naam)\b[^?]{0,30}\b(pan|bank\s+statement)\b[^?]{0,20}\b(vs\.?|versus|compared\s+to)\b"
+    r"|^\s*(my\s+|mera\s+|meri\s+|the\s+)?score\b(?![^?]*\b(credit|cibil|bureau)\b)",
+    re.I)
+
+
+#: The documents against the APPLICATION FORM (profile match), not each other.
+_APPLICATION_MATCH = re.compile(
+    r"\b(match\w*|same|differ\w*|mismatch\w*|consistent)\b[^?]{0,40}\b(application(\s+form)?|declared|form|profile|"
+    r"what\s+(the\s+)?(customer|applicant)\s+(gave|filled|declared))\b"
+    r"|\bapplication(\s+form)?\b[^?]{0,30}\b(match\w*|same|differ\w*|mismatch\w*)\b"
+    r"|\bform\s+(se|ke\s+saath)\s+match\b", re.I)
+
+
+def kyc_want(text: str) -> str:
+    """What a KYC question wants: the score, why it did not match, the
+    fields compared, or the result."""
+    if re.search(r"\bscore\b", text or "", re.I):
+        return "score"
+    if re.search(r"\b(why|kyon|kyu|kyun|reason\w*|mismatch\w*|did\s*n[o']?t\s+match|not\s+match\w*|match\s+nahi|"
+                 r"problems?|issues?|galat|wrong|review|fail\w*)\b", text or "", re.I):
+        return "mismatch"
+    if re.search(r"\b(fields?|information|info|details?|what\s+all|compared|checked)\b",
+                 text or "", re.I):
+        return "fields"
+    return "result"
+
+#: The intent family the SEMANTIC FRAME decides. A rule match in this family
+#: is a phrasing the rules happened to know; the frame reads the meaning and
+#: wins. Every other intent (a write, a refusal, eligibility, income, one
+#: document's values, case history, the caller's own details, a named party,
+#: a mixed question) keeps the rule that owns it.
+FRAME_FAMILY = frozenset({
+    Intent.UNKNOWN, Intent.DOCUMENTS_REQUIRED, Intent.DOCUMENTS_MISSING,
+    Intent.DOCUMENTS_PENDING, Intent.DOCUMENTS_UPLOADED, Intent.DOCUMENT_VERIFICATION,
+    Intent.PENDING_ITEMS, Intent.NEXT_ACTION, Intent.READINESS, Intent.COMPLETENESS,
+    Intent.APPLICATION_STAGE, Intent.APPLICATION_STATUS, Intent.FOS_KNOWLEDGE,
+})
+
+
+def _asks_readiness_for_next_stage(message: str, normalised: str) -> bool:
+    """
+    The next stage named + a need / pending / blocking cue, and not a definition (applicant_agent.yaml
+    chatbot.readiness_report.question: next_stages, cues). Read on the message as typed and as normalised.
+    """
+    from shared.applicant import config
+
+    rule = (config.chatbot("readiness_report").get("question") or {})
+    stages = [str(s).lower() for s in rule.get("next_stages") or []]
+    cues = [str(c).lower() for c in rule.get("cues") or []]
+    excluded = [str(w).lower() for w in rule.get("not_with") or []]
+    if not stages or not cues:
+        return False
+    for said in (str(message or ""), str(normalised or "")):
+        words = " " + " ".join(re.findall(r"[\wऀ-ॿ]+", said.lower())) + " "
+        if any(f" {w} " in words for w in excluded):
+            return False                      # "which DOCUMENTS do I need for CPA" is the checklist question
+        if any(f" {s} " in words for s in stages) and any(f" {c} " in words for c in cues) \
+                and not asks_for_a_definition(said):
+            return True
+    return False
+
+
+def understand(message: str, *, has_case: bool = False) -> Classification:
+    """
+    What the message means.
+
+      1. NORMALISE -- short forms, typos, other languages -> canonical words
+         (normalize.py / language.py).
+      2. FRAME     -- the semantic parser (semantic_frame.py) reads the
+         question as concepts and composes task / object / qualifiers /
+         referents. A confident frame decides the intent for its family.
+      3. RULES     -- the ordered patterns keep every intent outside that
+         family (writes, refusals, eligibility, income, history, profile,
+         mixed questions), exactly as before.
+      4. EXAMPLES  -- the legacy word-overlap fallback, demoted to last.
+
+    Deterministic, no model here: the bounded Qwen frame fallback runs in the
+    agent, only when this returns UNKNOWN (agent.py).
+    """
+    from shared.applicant import normalize, semantic
+    from shared.applicant.copilot.semantics import semantic_frame
+
+    normalised = normalize.normalise(message)
+    text = normalised.text or (message or "").strip()
+    if has_case and _asks_readiness_for_next_stage(message, text):
+        # "CPA ke liye kya chahiye", "what is blocking CPA", "CPA ke liye kya baaki hai" (FOS plan section 5):
+        # what this case still needs to move on -- the readiness report, never a generic stage guide
+        return Classification(Intent.READINESS, confidence="high", matched_on="readiness_for_next_stage",
+                              understanding="RULES")
+    classification = classify(text)
+    classification.understanding = "RULES"
+
+    frame = semantic_frame.parse(text, original=message)
+    classification.frame = frame
+    if classification.document_type is None and frame.document_type:
+        classification.document_type = frame.document_type   # "salry slip", read fuzzily
+    # A documents question that NAMES a stage ("which documents do I need
+    # for CPA?") is about documents; the stage is its referent. The
+    # how-a-stage-works rule keys on the stage name and would take it.
+    frame_decides = classification.intent in FRAME_FAMILY or (
+        classification.intent is Intent.STAGE_PROCESS
+        and frame.object in (semantic_frame.Object.DOCUMENTS, semantic_frame.Object.DOCUMENT)
+        # NAMED, not inferred: "what is checked during CPA?" infers documents
+        # from "checked" and is still about the stage
+        and (frame.document_type is not None or any(
+            concept in ("DOCUMENTS", "DOCUMENT")
+            for _word, concept in semantic_frame.concepts_in(message))))
+    # The STRUCTURAL rules ahead of the pattern table (which stage the case
+    # is at, its history, an impact question, a document-status list) read
+    # the whole question's shape and keep what they matched.
+    if classification.matched_on in ("current_stage", "stage_history", "impact",
+                                     "document_status_list", "document_rejected",
+                                     # a field, a finding or a KYC result named explicitly
+                                     "profile", "findings", "kyc"):
+        frame_decides = False
+    # A DOCUMENT'S verification asked with the word "reject" ("koi document
+    # reject hua kya") is a document question, not a loan decision: the
+    # out-of-scope rule keyed on the word alone.
+    # "WHY IS ADDRESS PROOF STILL PENDING?" is that document's status (not
+    # uploaded / under review / rejected), not the case's recorded reason.
+    if (classification.intent is Intent.CASE_HISTORY and frame.is_confident()
+            and frame.object is semantic_frame.Object.DOCUMENT
+            and frame.task is semantic_frame.Task.CHECK_VERIFICATION):
+        frame_decides = True
+    # "WHY ARE MY DOCUMENTS STILL PENDING?" lists the pending documents with
+    # their recorded reasons; the case-history rule keyed on "why ... pending".
+    if (classification.intent is Intent.CASE_HISTORY and frame.is_confident()
+            and frame.object in (semantic_frame.Object.DOCUMENTS, semantic_frame.Object.DOCUMENT)
+            and frame.task is semantic_frame.Task.LIST_PENDING
+            and semantic_frame.Qualifier.WHY in frame.qualifiers):
+        frame_decides = True
+    # "WHAT HAPPENS AFTER THIS STEP?" names the next stage; the current-stage
+    # rule keyed on "this step" alone.
+    if (frame.is_confident() and frame.object is semantic_frame.Object.STAGE
+            and frame.referents.get("stage") == "NEXT"):
+        frame_decides = True
+    if (classification.intent is Intent.OUT_OF_SCOPE and frame.is_confident()
+            and frame.task is semantic_frame.Task.CHECK_VERIFICATION
+            and frame.object in (semantic_frame.Object.DOCUMENTS, semantic_frame.Object.DOCUMENT)
+            and ("DOCUMENTS" in frame.concepts           # the question names a document
+                 or not _DECISION_WORDS.search(text))):  # or names no loan / decision
+        frame_decides = True
+    if frame.is_confident() and frame_decides \
+            and not (classification.intent is Intent.FOS_KNOWLEDGE
+                     and classification.matched_on in ("product", "definition")
+                     and not frame.object in (semantic_frame.Object.DOCUMENTS,)
+                     # "what is the next action?" -- a case step, not a term
+                     and frame.task not in (semantic_frame.Task.NEXT_ACTION,
+                                            semantic_frame.Task.READINESS,
+                                            semantic_frame.Task.LIST_PENDING)):
+        routed = semantic_frame.route(frame)
+        if routed:
+            intent = Intent(routed)
+            # ONE LABEL FOR ONE MEANING (step 6a). "Which stage is my case at?" read by
+            # the frame is the same question the structural rule calls "current_stage",
+            # and the consumers key on that label: the localized stage template
+            # (copilot_api) and the knowledge exclusion below. Labelled "frame:..." it
+            # missed both, so a Hindi / Marathi / Tamil stage question was answered in
+            # English. The frame stays attached (understanding="FRAME") as provenance.
+            current_stage = (intent is Intent.APPLICATION_STAGE
+                             and frame.task is semantic_frame.Task.CURRENT_STAGE
+                             and frame.object is semantic_frame.Object.STAGE)
+            base = Classification(
+                intent, confidence=frame.confidence,
+                document_type=frame.document_type or _document_type(text),
+                matched_on=("current_stage" if current_stage
+                            else f"frame:{frame.task.value}/{frame.object.value}"),
+                frame=frame, understanding="FRAME")
+            # A knowledge clause attached to a case question is still MIXED
+            # -- when the tail IS a knowledge question. "At this point in my
+            # application, what documents do I still need?" has a comma and
+            # a "what", and one meaning.
+            tail_match = _MIXED_TAIL.search(text) if intent in PLANS else None
+            if tail_match:
+                tail = text[tail_match.end():].strip()
+                tail_frame = semantic_frame.parse(tail)
+                knowledge_tail = (looks_like_knowledge(tail) or asks_for_a_definition(tail)
+                                  or semantic_frame.is_knowledge(tail_frame))
+                # A tail about THIS case ("... and what is holding it up?",
+                # "... and what should I do next?") is a case question.
+                if re.search(r"\b(it|my|mine|me|i|mera|meri|mere|mujhe|माझ|मेर)\b", tail,
+                             re.IGNORECASE) and (not asks_for_a_definition(tail) or (
+                                 tail_frame.is_confident()
+                                 and not semantic_frame.is_knowledge(tail_frame))):
+                    knowledge_tail = False
+                if knowledge_tail and not (tail_frame.is_confident()
+                                           and tail_frame.object is frame.object
+                                           and tail_frame.task is frame.task):
+                    base = Classification(Intent.MIXED, document_type=base.document_type,
+                                          matched_on=base.matched_on, base_intent=intent,
+                                          frame=frame, understanding="FRAME")
+            classification = base
+
+    from shared.applicant.copilot.conversation import followup
+
+    # A BARE "which document?" NAMES NOTHING. Unresolved by the follow-up
+    # context, it is a clarification -- the semantic layer would otherwise
+    # guess a document question about every document on the case.
+    if (classification.intent is Intent.UNKNOWN and has_case
+            and not asks_for_a_definition(text)
+            and not followup.needs_context(text)
+            # A frame that already knows what to ask ("what about the other
+            # applicant?") is a clarification, not a guess by word overlap.
+            and semantic_frame.clarification(frame, has_case=has_case) is None):
+        match = semantic.best(text)
+        if match is not None:
+            try:
+                intent = Intent(match.intent)
+            except ValueError:
+                intent = None
+            if intent is not None and intent not in WRITE_INTENTS and intent not in (
+                    Intent.OUT_OF_SCOPE, Intent.UNKNOWN):
+                classification = Classification(
+                    intent, confidence="medium",
+                    document_type=_document_type(text),
+                    matched_on=f"semantic:{match.example}",
+                    frame=frame, understanding="EXAMPLES",
+                )
+
+    if normalised.changed:
+        classification.normalized = text
+    why = _why_required(message, classification)
+    if why is not None:
+        return why
+    general = _general_question(message, classification)
+    if general is not None:
+        return general
+    handbook = _answered_by_the_handbook(message, classification)
+    if handbook is not None:
+        return handbook
+    return classification
+
+
+#: "WHY is <document> needed?" -- a why-word and a requirement-word, in any of the
+#: languages the lexicons read. With a NAMED document this asks for the reason that
+#: document is on the case's checklist (the configured reason), not for a list.
+_WHY_WORD = re.compile(r"\b(why|kyu|kyun|kyon|kyo|kaahe|kashasathi)\b|क्यों|क्यूँ|कशासाठी|का\s+कारण", re.IGNORECASE)
+_NEED_WORD = re.compile(r"\b(required|require|requires|need|needed|needs|necessary|mandatory|asked|ask|chahiye|"
+                        r"chaiye|zaroori|zaruri|jaruri|jaroori|lagta|lagega|lagtat|lagte)\b|"
+                        r"ज़रूरी|जरूरी|आवश्यक|चाहिए|लागतो|लागते|लागेल", re.IGNORECASE)
+
+
+def _why_required(message: str, classification: Classification) -> Classification | None:
+    """
+    Why a NAMED document is required -> product knowledge, answered from that
+    document's CONFIGURED reason (knowledge_facts.answer_for), cited as the
+    configured document policy. General, not about the customer's case.
+    """
+    text = message or ""
+    # AS TYPED, OR AS THE LEXICONS READ IT: Marathi "PAN का लागतो?" carries its
+    # "why" in "का" only together with the verb ("why is pan needed?")
+    canonical = str(getattr(classification, "normalized", None) or "")
+    if not any(_WHY_WORD.search(t) and _NEED_WORD.search(t) for t in (text, canonical) if t):
+        return None
+    from shared.applicant.copilot.semantics import semantic_frame
+
+    frame = getattr(classification, "frame", None)
+    document = (getattr(frame, "document_type", None) or classification.document_type
+                or semantic_frame._document_type(text))
+    if not document:
+        return None
+    return Classification(Intent.FOS_KNOWLEDGE, confidence="high", document_type=str(document).upper(),
+                          matched_on="why_required", frame=frame, understanding=classification.understanding)
+
+
+#: Words that tie a question to THIS case or person ("my", "mera", "iska", ...).
+_CASE_ANCHOR = re.compile(
+    r"\b(my|mine|our|ours|mera|meri|mere|hamara|hamari|hamare|iska|iski|iske|uska|uski|uske|"
+    r"majha|majhi|majhe|maza|mazi|maze|amcha|amchi)\b|मेरा|मेरी|मेरे|हमारा|हमारी|इसका|इसकी|माझा|माझी|माझे",
+    re.IGNORECASE)
+#: Live-state intents a process question can be mistaken for. NOT
+#: DOCUMENTS_REQUIRED: what a product requires is the configured policy's to
+#: say, and a handbook page about it may be older than the configuration.
+_HANDBOOK_CANDIDATES = frozenset({"DOCUMENTS_MISSING", "DOCUMENTS_PENDING",
+                                  "DOCUMENTS_UPLOADED", "DOCUMENT_VERIFICATION", "NEXT_ACTION",
+                                  "APPLICANT_PROFILE", "PENDING_ITEMS"})
+
+
+def _handbook_floor() -> float:
+    try:
+        return float(os.getenv("LOS_KNOWLEDGE_ROUTE_MIN_SCORE", "0.80"))
+    except ValueError:
+        return 0.80
+
+
+def _answered_by_the_handbook(message: str, classification: Classification) -> Classification | None:
+    """
+    A PROCESS QUESTION THE HANDBOOK ANSWERS ALMOST WORD FOR WORD.
+
+    The frame reads any upload/document question as a request for this case's
+    checklist: "can I upload several documents at once?" was answered with the
+    missing-documents list. Retrieval scores alone cannot route -- measured on
+    the FOS corpus, live questions score 0.58-0.80 and process questions
+    0.57-0.86 -- so this is deliberately narrow: ONLY a question that names no
+    case or person of its own (no "my", "mera", "iska", ...) AND whose dense
+    match to a handbook section is >= 0.80 (no anchor-free live question
+    reached 0.75). Only with the dense backend: BM25 scores are another scale.
+    Live truth is never read from the handbook; this only decides that the
+    question was not about live truth.
+    """
+    if classification.intent.value not in _HANDBOOK_CANDIDATES or _CASE_ANCHOR.search(message or ""):
+        return None
+    try:
+        from app import knowledge
+        from app.knowledge.retriever import FallbackRetriever
+
+        # the DENSE signal, whichever backend builds answers (knowledge.backend)
+        retriever = knowledge.dense_retriever()
+        if not isinstance(retriever, FallbackRetriever):
+            return None
+        result = retriever.retrieve(message, "FOS", limit=1)
+        if retriever.last_used != "primary" or not result.hits or result.hits[0].score < _handbook_floor():
+            return None
+    except Exception:  # noqa: BLE001 - no handbook signal: the frame's reading stands
+        return None
+    return Classification(Intent.FOS_KNOWLEDGE, confidence="high", document_type=classification.document_type,
+                          matched_on=f"handbook:{result.hits[0].chunk.heading[:60]}",
+                          frame=classification.frame, understanding="HANDBOOK_MATCH")
+
+
+#: A question about THIS case names it: my / mera / I / our case ...
+_SELF_OR_CASE = re.compile(
+    r"\b(my|mine|me|i|i'?m|i'?ve|mera|meri|mere|mujhe|maine|hamara|humara|hamari|humari|"
+    r"apna|apni|apne|this\s+case|is\s+case|my\s+case|this\s+(file|application|loan)|"
+    # "this issue", "that document", "these findings": the case's own
+    r"(this|that|these|those)\s+(issues?|problems?|findings?|documents?|stages?|steps?|"
+    r"mismatch(es)?|reasons?|blockers?|items?))\b"
+    r"|मेरा|मेरी|मेरे|माझा|माझी|माझे|माझं", re.IGNORECASE)
+#: ... a question about HOW THINGS WORK is general: a hypothetical, a rule,
+#: a limit, "a customer", "a personal loan".
+_GENERAL = re.compile(
+    r"\bif\b|\bagar\b|\bjab\b|\b(in\s+general|generally|typically|usually|normally|as\s+a\s+rule)\b"
+    r"|\b(a|an|any)\s+(customer|applicant|borrower|client|case|file|application|document|kyc\s+field|field)('s)?\b"
+    r"|\b(for|ke\s+liye|mein)\s+(a\s+)?(home|personal|business|gold|car)\s+loan\b"
+    r"|\b(home|personal|business|gold|car)\s+loan\s+(ke\s+liye|mein|me|ke)\b|होम\s+लोन|एक\s+केस|\bek\s+case\b"
+    r"|\b(accept\s+hote|hote\s+hain|hoti\s+hai|chalta\s+hai)\b"
+    r"|\bhow\s+(many|long)\s+(days|weeks)\b|\bhow\s+long\s+(does|will|would)\s+it\s+take\b"
+    r"|\b(accepted|acceptable|valid|allowed|used|use|usable)\s+(as|for)\b"
+    r"|\b(a|an|any)\s+((personal|home|business|gold|car|vehicle|two-wheeler)\s+)?loans?\b"
+    r"|\b(is\s+it|are\s+they|is\s+there)\s+(ok|okay|allowed|possible|mandatory|compulsory|required|a\s+rule)\b"
+    r"|\b(allowed|permitted|compulsory|mandatory|maximum|minimum|max|min|policy|rule|rules|we\s+can)\b"
+    r"|\b(chalega|chalta\s+hai|maana\s+jata|mana\s+jata|hota\s+hai|lagta\s+hai)\b"
+    # ("does THAT stop ..." is hypothetical; "does THIS thing get paid back"
+    # is the caller's own loan, so this / it are not general markers)
+    r"|\b(does|will|would|can|should)\s+(that|the\s+\w+)\b", re.IGNORECASE)
+#: THE CASE'S OWN THING: a possessive (or "this") attached to something the
+#: case records -- "my loan amount", "mera KYC", "this issue", "pending for me".
+_CASE_POSSESSION = re.compile(
+    r"\bis\s+(case|file|application|loan)\b|"
+    r"\b(my|mine|our|mera|meri|mere|hamara|humara|hamari|apna|apni|apne|this)\s+(\w+\s+){0,2}"
+    r"(loan|case|application|file|documents?|docs?|kyc|pan|aadhaa?r|stage|status|mobile|number|email|"
+    r"address|name|naam|dob|birth|tenure|amount|interest|rate|emi|co-?\s?applicant|details?|issues?|"
+    r"problems?|findings?|score|result|verification|photo|statement|proof|slip|income|salary|id)\b"
+    r"|\b(pending|missing|baki|baaki)\s+(for|on|in)\s+(me|my|mere|mera)\b|\bmere\s+liye\b"
+    r"|मेरा|मेरी|मेरे|माझा|माझी|माझे|माझं", re.IGNORECASE)
+#: HOW THINGS WORK asked in the first person: "Can I use an electricity bill
+#: as address proof?", "Will that stop me from handing over?", "Should I ...".
+_POLICY_FRAMING = re.compile(
+    r"\b(can|could|may|should|shall)\s+i\b|\b(do|would)\s+i\s+need\s+to\b"
+    r"|\b(will|would|does|can)\s+(that|it)\s+(stop|block|hold|prevent|mean|affect|count|work)\b"
+    r"|\bwhat\s+(else\s+)?can\s+i\s+(take|use|collect|accept|submit)\b"
+    r"|\b(accepted|acceptable|valid|allowed|usable|used)\s+(as|for)\b"
+    r"|\b(if|agar)\b|\b(generally|in\s+general|as\s+a\s+rule|usually|typically|normally)\b", re.IGNORECASE)
+
+
+#: Case intents a general question must not be answered from.
+_CASE_ROUTED = frozenset({
+    Intent.APPLICANT_PROFILE, Intent.APPLICATION_STATUS, Intent.APPLICATION_STAGE,
+    Intent.DOCUMENTS_REQUIRED,
+    Intent.DOCUMENTS_UPLOADED, Intent.DOCUMENTS_PENDING, Intent.DOCUMENTS_MISSING,
+    Intent.DOCUMENT_VERIFICATION, Intent.PENDING_ITEMS, Intent.READINESS, Intent.KYC_RESULT,
+    Intent.UNKNOWN, Intent.OUT_OF_SCOPE,
+})
+
+
+#: The caller's own record named in a clause ("my", "mera", "मेरा").
+_OWN_CLAUSE = re.compile(r"\b(my|mine|our|mera|meri|mere|hamara|hamari|apna|apni|apne)\b|मेरा|मेरी|मेरे|माझ",
+                         re.IGNORECASE)
+#: A GENERIC subject: "a KYC field", "one document", "the customer", "customer
+#: ke do documents", "pehla PAN" -- a kind of thing, not this case's own.
+_GENERIC_SUBJECT = re.compile(
+    r"^\s*(a|an|one|some|any|ek|koi)\s+(\w+\s+){0,2}(documents?|docs?|kyc\s+field|field|case|file|row|"
+    r"slot|pan|passport|application|checklist)\b"
+    r"|^\s*(the\s+|a\s+)?customer(\s+ke|\s+ka|\s+ki|'s|\s+has|\s+is|\s+gave)\b"
+    r"|^\s*(pehla|pehle|first|earlier)\s+\w+", re.IGNORECASE)
+#: What the ASSISTANT itself can do ("from this chatbot", "through the app").
+_ASSISTANT_CAPABILITY = re.compile(
+    r"\b(from|through|using|via|with|in|on)\s+(this|the)\s+(chat\s?bot|bot|assistant|copilot|tool|app)\b",
+    re.IGNORECASE)
+#: A question about what something MEANS or what to DO -- asked after a
+#: scenario ("... Can I tell the customer?", "... Which ones should I clear?").
+_POLICY_ASK = re.compile(
+    r"\b(can|could|should|may)\s+(i|we|you)\b|\bwill\s+(that|it|this)\s+(stop|block|mean|affect|delay)\b"
+    r"|\bdoes\s+(that|it|this)\s+(mean|stop|block|affect|confirm|count)\b|\bwhat\s+(happens|should|do\s+i)\b"
+    r"|\bwhich\s+(\w+\s+)?should\b"
+    r"|\bkya\b[^?]*\b(hoga|hogi|jayega|jayegi|dikhega|dikhegi|chalega|chalegi|maana|milega)\b",
+    re.IGNORECASE)
+
+
+def _framed_as_general(text: str, classification: Classification) -> Classification | None:
+    """
+    THE SHAPE OF A GENERAL QUESTION, not its words. Judged on the QUESTION
+    clause -- the sentences before it are the scenario it is asked about:
+
+      - a scenario, then "can I / should I / will that / does that mean"
+      - a generic subject ("a KYC field", "the customer") with that framing
+      - what the assistant can do ("check a CIBIL score from this chatbot")
+
+    The caller's own record named in the question clause ("my", "mera")
+    keeps it a case question, whatever else the sentence says.
+    """
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+    question = sentences[-1] if sentences else text
+    context = " ".join(sentences[:-1])
+    if _OWN_CLAUSE.search(question):
+        return None
+    general = Classification(Intent.FOS_KNOWLEDGE, confidence="medium", matched_on="general_framing",
+                             frame=classification.frame)
+    if _ASSISTANT_CAPABILITY.search(question) and not _OWN_CLAUSE.search(text):
+        return general
+    if context and _POLICY_ASK.search(question):
+        return general
+    if _GENERIC_SUBJECT.search(text) and _POLICY_ASK.search(question) and not _OWN_CLAUSE.search(text):
+        return general
+    return None
+
+
+def _document_on_case(text: str) -> Classification | None:
+    """A named document + a PROBLEM word -> its KYC check; + a FIELD word -> its read details."""
+    document = _document_type(text)
+    if not document:
+        return None
+    from shared.applicant.copilot.semantics import semantic_frame as _sf
+
+    # the document's OWN name is not a field: "the address proof" names a document, it asks no field
+    own = set(str(document).lower().split("_"))
+    rest = " ".join(w for w in re.findall(r"[\wऀ-ॿ]+", text.lower()) if w not in own)
+    found = {concept for _, concept in _sf.concepts_in(rest)}
+    if "PROBLEM" in found:
+        return Classification(Intent.KYC_RESULT, matched_on="document_problem", document_type=document,
+                              fields={"want": kyc_want(text)})
+    if "DOC_FIELD" in found:
+        return Classification(Intent.DOCUMENT_DETAILS, matched_on="document_field", document_type=document)
+    return None
+
+
+def _general_question(message: str, classification: Classification) -> Classification | None:
+    """
+    LIVE DATA VS KNOWLEDGE. "Can I use an electricity bill as address proof?",
+    "If the loan amount is bigger, can documents be dropped?", "What is the
+    maximum interest we can charge on a personal loan?" are questions about
+    HOW THINGS WORK: nothing in them names this case, and the case's own
+    record is not their answer. They go to the knowledge path, which answers
+    from the handbook -- or says honestly that it does not know.
+    """
+    text = str(message or "")
+    if classification.intent not in _CASE_ROUTED or not text.strip():
+        return None
+    if classification.matched_on in ("application_match",):
+        return None                   # this case's documents vs this case's form: live data
+    from shared.applicant import handoff as _handoff
+
+    if _handoff.asks_for_person(text):
+        return None                   # "can I speak to a person?" is a handoff, not a policy question
+    framed = _framed_as_general(text, classification)
+    if framed is not None:
+        return framed
+    # A DOCUMENT OF THIS CASE named with a FIELD or a PROBLEM ("PAN pe kya naam hai?",
+    # "PAN mein kya galat hai?") is about this case's document, never the handbook --
+    # with or without "my" (6b-fastlane-fix; the words are semantic_concepts.yaml
+    # DOC_FIELD / PROBLEM).
+    on_document = _document_on_case(text)
+    if on_document is not None:
+        return on_document
+    if classification.matched_on in ("kyc", "findings", "stage_history"):
+        return None
+    # "which documents are mandatory?" is this case's checklist; only a named
+    # PRODUCT ("for a home loan", "होम लोन के लिए") makes it a general question
+    if classification.intent is Intent.DOCUMENTS_REQUIRED and not re.search(
+            r"\b(for|of)\s+(a|an|any)?\s*(home|personal|business|vehicle|car|gold|education|"
+            r"housing|two[- ]wheeler|msme)\s+loans?\b|\bloan\s+ke\s+liye\b|लोन\s+के\s+लिए|"
+            r"कर्जासाठी", text, re.I):
+        return None
+    if classification.matched_on == "current_stage" and not re.search(
+            r"\b(a|an|any)\s+(case|file|application)\b", text, re.I):
+        return None
+    if _CASE_POSSESSION.search(text):
+        return None                   # "my loan amount", "this issue": the case's own
+    if _SELF_OR_CASE.search(text) and not _POLICY_FRAMING.search(text):
+        return None                   # "I" / "me" with nothing that asks how things work
+    from shared.applicant.copilot.routing import subjects as _subjects_general
+
+    if _subjects_general.mentioned(text) is not None or re.match(
+            r"\s*(and|aur|also|then|ok|okay|theek|thik|accha|haan|और|आणि|ठीक)\b", text, re.I):
+        return None
+    # "what about the other guy on the application?" continues the conversation
+    # (a person, a field, a document): never a general policy question
+    if re.match(r"\s*(what|how)\s+about\b", text, re.I):
+        return None
+    question_shaped = bool(re.search(r"\?\s*$|^\s*(what|which|who|how|is|are|can|could|does|do|"
+                                     r"will|should|kya|kaun|kab|kitna|kitne)\b", text, re.I))
+    # an unknown question that points back ("what is THIS based on?") is about
+    # the conversation, never a general one
+    deictic = bool(re.search(r"\b(this|that|it|these|those|yeh|woh|ye|vo)\b", text, re.I))
+    if not _GENERAL.search(text) and not (
+            classification.intent is Intent.UNKNOWN and question_shaped and len(text.split()) >= 5
+            and not deictic):
+        return None
+    if classification.intent is Intent.OUT_OF_SCOPE and not re.search(
+            r"\b(maximum|minimum|max|min|policy|rule|allowed|charge|fee|penalty|rate|usually|"
+            r"typically|how\s+(many|long)|can\s+i\s+(check|see|tell))\b", text, re.I):
+        return None                        # a decision question stays out of scope
+    if classification.route_to == "ELIGIBILITY_AMOUNT" and re.search(r"\beligib\w*", text, re.I):
+        return None                        # "maximum ELIGIBLE amount": this applicant's -- the credit route (2026-10-12)
+    if len(text.split()) < 4:
+        return None
+    if stage_in(text) is not None and re.search(r"\b(hold|block|stop|stuck|check|happen)\w*\b", text, re.I) \
+            and re.search(r"\b(at|in|during)\s+(the\s+|a\s+)?\w+\s+(step|stage|desk)\b", text, re.I):
+        return Classification(Intent.STAGE_PROCESS, confidence="medium",
+                              matched_on="general_question_stage", frame=classification.frame)
+    return Classification(Intent.FOS_KNOWLEDGE, confidence="medium", matched_on="general_question",
+                          frame=classification.frame)
+
+
+def _profile_plan(classification: Classification) -> tuple[str, ...]:
+    """
+    THE SOURCE EACH FIELD NEEDS, AND NO OTHER. A person's own field (name,
+    mobile, email, date of birth, address) is on the applicant record; the
+    loan's (amount, tenure, rate, product, the case and applicant ids) on the
+    application record; an identity number (PAN, Aadhaar, account) is read
+    from the case's document findings, which no tool here serves. A bundle or
+    a field this cannot place keeps both records, exactly as before.
+    """
+    from shared.applicant.copilot.routing import capabilities
+    from shared.applicant.copilot.facts import field_state
+
+    wanted = str((classification.fields or {}).get("field") or "")
+    fields = [f for f in wanted.split("+") if f]
+    if not fields or any(f.startswith("ALL") or f.isupper() for f in fields):
+        return PLANS[Intent.APPLICANT_PROFILE]
+    plan: list[str] = []
+    for f in fields:
+        if f in field_state.IDENTITY_FIELDS:
+            continue
+        if f in capabilities.APPLICANT_FIELDS:
+            plan.append("applicant.get")
+        elif f in capabilities.APPLICATION_FIELDS or f == "application_ref":
+            plan.append("application.get")
+        else:
+            return PLANS[Intent.APPLICANT_PROFILE]
+    return tuple(dict.fromkeys(plan))
+
+
+#: Intent -> the tools that answer it. The planner reads this; it does not
+#: invent tool names, and a model cannot add one.
+PLANS: dict[Intent, tuple[str, ...]] = {
+    Intent.APPLICANT_DETAILS: ("applicant.get",),
+    Intent.APPLICANT_MISSING_INFO: ("applicant.get", "workflow.pending_items"),
+    Intent.APPLICANT_PROFILE: ("applicant.get", "application.get"),
+    Intent.APPLICATION_STATUS: ("application.get",),
+    Intent.APPLICATION_STAGE: ("applicant.360",),
+    Intent.DOCUMENTS_UPLOADED: ("documents.get",),
+    Intent.DOCUMENTS_REQUIRED: ("documents.checklist",),
+    Intent.POLICY_EXPLANATION: ("documents.checklist",),
+    Intent.DOCUMENTS_MISSING: ("documents.checklist",),
+    Intent.DOCUMENTS_PENDING: ("documents.get", "workflow.pending_items"),
+    Intent.DOCUMENT_VERIFICATION: ("documents.verification",),
+    Intent.PENDING_ITEMS: ("workflow.pending_items",),
+    Intent.NEXT_ACTION: ("workflow.next_action",),
+    Intent.READINESS: ("workflow.readiness",),
+    Intent.COMPLETENESS: ("workflow.readiness", "workflow.pending_items"),
+    Intent.FULL_SUMMARY: ("applicant.360",),
+}
+
+
+#: A case half the MIXED route can answer: an intent with a planned tool, or
+#: the recorded findings (agent.py answers MIXED from exactly these). Not a
+#: write, a refusal, a person-level read, or an intent the agent answers on
+#: a path of its own (eligibility, income, one document's values).
+_MIXED_BASES = frozenset(PLANS) | {Intent.CASE_HISTORY, Intent.CASE_FINDINGS, Intent.KYC_RESULT}
+
+
+#: Tools whose result already carries the checklist.
+_CARRIES_CHECKLIST = frozenset({"applicant.360", "documents.checklist"})
+
+
+def _with_checklist(plan: tuple[str, ...], has_case: bool) -> tuple[str, ...]:
+    """
+    Every case-scoped answer carries the document checklist.
+
+    A FOS who asks "what should I do next?" gets the action AND the checklist
+    it was derived from, so the screen behind the answer renders from one call
+    instead of two. What makes a call case-scoped is that a case_id came with
+    it, NOT which tools the intent happens to need: "show me the applicant"
+    asked against an open case is a question asked from a case screen, and
+    that screen has a checklist on it.
+
+    Without a case_id the checklist is not planned -- there is nothing to
+    build one for, and asking would only produce a NOT_FOUND to report.
+    """
+    if not plan or not has_case:
+        return plan
+    if any(tool in _CARRIES_CHECKLIST for tool in plan):
+        return plan
+    return plan + ("documents.checklist",)
+
+
+def plan_for(
+    classification: Classification,
+    *,
+    has_case: bool = True,
+) -> tuple[str, ...]:
+    """
+    Which tools to call. Empty for out-of-scope, unknown and write intents,
+    which are handled before any read happens.
+
+    `has_case` says whether a case_id was supplied; without one the checklist
+    tool is not appended, because it would only fail.
+    """
+    if classification.intent in (Intent.OUT_OF_SCOPE, Intent.UNKNOWN,
+                                 Intent.FOS_KNOWLEDGE):
+        return ()
+
+    # Case history is read from case memory, not from a tool. The
+    # application is still fetched so the answer can name the case it is
+    # about rather than answering into the void.
+    # The applicant's own applications. NO `has_case` guard: this is the
+    # one read that is about the person rather than a case, and it is
+    # scoped by applicant_id at the tool.
+    # A stage guide is retrieved, not fetched with a tool.
+    if classification.intent is Intent.STAGE_PROCESS:
+        return ()
+
+    if classification.intent is Intent.CASE_PORTFOLIO:
+        return ("applications.list",)
+
+    # One recorded detail needs its two records and nothing else -- no
+    # checklist, no documents (minimum necessary).
+    if classification.intent is Intent.APPLICANT_PROFILE:
+        return _profile_plan(classification) if has_case else ()
+
+    # A KYC RESULT is the recorded KYC finding (case memory): no tool record.
+    if classification.intent is Intent.KYC_RESULT:
+        return ()
+    if classification.intent in (Intent.CASE_HISTORY, Intent.CASE_FINDINGS,
+                                 Intent.INCOME_EVIDENCE,
+                                 Intent.ELIGIBILITY,
+                                 Intent.DOCUMENT_DETAILS):
+        return ("application.get",) if has_case else ()
+
+    # A mixed question needs the case data its case half would have needed.
+    if classification.intent is Intent.MIXED:
+        base = classification.base_intent or Intent.FULL_SUMMARY
+        return _with_checklist(PLANS.get(base, ("applicant.360",)), has_case)
+    if classification.intent in WRITE_INTENTS:
+        return ()
+    # A verification question that named no document falls back to the whole
+    # document list, so "which documents failed?" still answers.
+    if (classification.intent is Intent.DOCUMENT_VERIFICATION
+            and not classification.document_type):
+        return _with_checklist(("documents.get",), has_case)
+    return _with_checklist(PLANS.get(classification.intent, ()), has_case)
+
+
+_COMPOUND_CASE = frozenset(PLANS) | {Intent.CASE_HISTORY, Intent.DOCUMENT_DETAILS,
+                                     Intent.INCOME_EVIDENCE, Intent.KYC_RESULT,
+                                     Intent.CASE_FINDINGS}
+
+
+__all__ = [
+    "Classification", "Intent", "PLANS", "SIMPLE_INTENTS", "WRITE_INTENTS",
+    "asks_about_own_case", "looks_like_knowledge",
+    "classify", "plan_for", "understand",
+]

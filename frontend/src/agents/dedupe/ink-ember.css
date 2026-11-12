@@ -1,0 +1,213 @@
+/* INK & EMBER -- DESIGN.md. Linked after styles.css, so it wins. It re-points the variables styles.css reads at the Ink &
+   Ember tokens, and flattens the "graphite rail + violet aurora" look: no gradients, glows or glass. Ink creates (primary
+   button), ember marks (focus, selection, current step), indigo informs, status in its own pastel family. Light and dark
+   follow the system; the existing Light/Dark toggle (theme.js) still overrides it. No markup or script changes. */
+:root {
+  --bg: #f7f7f8; --surface: #ffffff; --surface-2: #f4f4f5; --raised-hover: #ebebed;
+  --line: #eaeaec; --line-2: #d4d4d8; --divider: #f0f0f1;
+  --ink: #18181b; --ink-2: #3f3f46; --muted: #71717a;
+  --nav: #ffffff; --nav-2: #ffffff; --nav-line: #eaeaec; --nav-text: #3f3f46; --nav-muted: #71717a;
+  --brand: #1E40AF; --brand-2: #1E40AF; --brand-soft: #DBEAFE; --brand-ink: #1E40AF; --brand-tint: #EFF6FF;
+  --link: #4f5ac7; --info: #4148a8; --info-soft: #eef0fc; --info-line: #cfd4f5;
+  --ok: #177334; --ok-soft: #e7f4eb; --ok-line: #c5e6cf; --ok-fill: #1e8e3e;
+  --warn: #92400E; --warn-soft: #F5E7DD; --warn-line: #f2dcae; --warn-fill: #B45309;
+  --bad: #b03535; --bad-soft: #fdecec; --bad-line: #f5c6c6; --bad-fill: #d14343;
+  --na: #71717a; --na-soft: #f4f4f5; --na-line: #eaeaec;
+  --violet-soft: #eef0fc; --teal: #71717a; --teal-soft: #f4f4f5;
+  --on-ink: #ffffff; --ink-fill: #18181b; --ink-fill-hover: #27272a; --ink-fill-pressed: #09090b; --ink-fill-disabled: #d4d4d8;
+  --on-fill: #ffffff; --band: #18181b; --scrim: rgba(24, 24, 27, .5);
+  --shadow-1: none; --shadow-2: none; --e-sm: 0 1px 3px rgba(24, 24, 27, .06); --e-lg: 0 12px 32px rgba(24, 24, 27, .16);
+  --radius: 16px; --radius-sm: 8px;
+  --font-display: "Space Grotesk", "Inter", -apple-system, "Segoe UI", sans-serif;
+  --font: "Lexend", "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c0c0d; --surface: #141416; --surface-2: #1d1d20; --raised-hover: #26262a;
+    --line: #27272a; --line-2: #3f3f46; --divider: #1f1f22;
+    --ink: #fafafa; --ink-2: #d4d4d8; --muted: #a1a1aa;
+    --nav: #141416; --nav-2: #141416; --nav-line: #27272a; --nav-text: #d4d4d8; --nav-muted: #a1a1aa;
+    --brand: #60A5FA; --brand-2: #60A5FA; --brand-soft: #172554; --brand-ink: #93C5FD; --brand-tint: #0F1D3A;
+    --link: #8b94e8; --info: #a3aaf0; --info-soft: #1d2040; --info-line: #2f3568;
+    --ok: #6fcb8d; --ok-soft: #102416; --ok-line: #1f4a2c; --ok-fill: #3fa65c;
+    --warn: #e8bc63; --warn-soft: #2a2010; --warn-line: #4a3a17; --warn-fill: #d9a13a;
+    --bad: #f09090; --bad-soft: #2e1818; --bad-line: #5a2a2a; --bad-fill: #e06a6a;
+    --na: #a1a1aa; --na-soft: #1d1d20; --na-line: #27272a;
+    --violet-soft: #1d2040; --teal: #a1a1aa; --teal-soft: #1d1d20;
+    --on-ink: #18181b; --ink-fill: #fafafa; --ink-fill-hover: #ffffff; --ink-fill-pressed: #e4e4e7; --ink-fill-disabled: #3f3f46;
+    --on-fill: #18181b; --band: #1d1d20; --scrim: rgba(0, 0, 0, .7);
+    --shadow-1: none; --shadow-2: none; --e-sm: 0 1px 3px rgba(0, 0, 0, .5); --e-lg: 0 12px 32px rgba(0, 0, 0, .65);
+    color-scheme: dark;
+  }
+}
+/* the manual toggle still wins in both directions */
+:root[data-theme="dark"] {
+  --bg: #0c0c0d; --surface: #141416; --surface-2: #1d1d20; --raised-hover: #26262a;
+  --line: #27272a; --line-2: #3f3f46; --divider: #1f1f22;
+  --ink: #fafafa; --ink-2: #d4d4d8; --muted: #a1a1aa;
+  --nav: #141416; --nav-2: #141416; --nav-line: #27272a; --nav-text: #d4d4d8; --nav-muted: #a1a1aa;
+  --brand: #60A5FA; --brand-2: #60A5FA; --brand-soft: #172554; --brand-ink: #93C5FD; --brand-tint: #0F1D3A;
+  --link: #8b94e8; --info: #a3aaf0; --info-soft: #1d2040; --info-line: #2f3568;
+  --ok: #6fcb8d; --ok-soft: #102416; --ok-line: #1f4a2c; --ok-fill: #3fa65c;
+  --warn: #e8bc63; --warn-soft: #2a2010; --warn-line: #4a3a17; --warn-fill: #d9a13a;
+  --bad: #f09090; --bad-soft: #2e1818; --bad-line: #5a2a2a; --bad-fill: #e06a6a;
+  --na: #a1a1aa; --na-soft: #1d1d20; --na-line: #27272a;
+  --violet-soft: #1d2040; --teal: #a1a1aa; --teal-soft: #1d1d20;
+  --on-ink: #18181b; --ink-fill: #fafafa; --ink-fill-hover: #ffffff; --ink-fill-pressed: #e4e4e7; --ink-fill-disabled: #3f3f46;
+  --on-fill: #18181b; --band: #1d1d20; --scrim: rgba(0, 0, 0, .7);
+  --shadow-1: none; --shadow-2: none; --e-sm: 0 1px 3px rgba(0, 0, 0, .5); --e-lg: 0 12px 32px rgba(0, 0, 0, .65);
+  color-scheme: dark;
+}
+
+/* ---- the old "Midnight" aurora rules, neutralised in both dark paths. :root x3 outranks their (0,3,0) selectors. */
+:root:root:root body { background: var(--bg); background-attachment: scroll; }
+:root:root:root .card, :root:root:root .panel, :root:root:root .stat, :root:root:root .hero, :root:root:root .stepper,
+:root:root:root .form-bar, :root:root:root .loan-card, :root:root:root .check, :root:root:root .cust-strip { background-image: none; }
+:root:root:root .hero { box-shadow: none; }
+:root:root:root .btn.primary { background: var(--cu-action, #172554); box-shadow: none; }
+:root:root:root .btn.ghost { background: var(--surface); border-color: var(--line); }
+:root:root:root input, :root:root:root select, :root:root:root textarea { background-color: var(--surface); border-color: var(--line); color: var(--ink); }
+:root:root:root input:focus, :root:root:root select:focus, :root:root:root textarea:focus { border-color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); }
+:root:root:root .stat:not(.warn):not(.bad):not(.na) .v { background: none; -webkit-background-clip: border-box; background-clip: border-box; color: var(--ink); }
+:root:root:root .panel-head { border-bottom-color: var(--line); }
+:root:root:root .check.c-fail { box-shadow: none; }
+:root:root:root .check.c-pass .light, :root:root:root .check.c-fail .light, :root:root:root .check.c-skip .light,
+:root:root:root .check.c-partial .light { box-shadow: none; }
+:root:root:root .toast { background: var(--cu-action, #172554); color: var(--on-ink); border: 0; }
+
+/* ---- base */
+body { font: 15px/22px var(--font); letter-spacing: -.006em; }
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 8px; }
+.skip { background: var(--cu-action, #172554); color: var(--on-ink); }
+h1 { font-family: var(--font-display); font-size: 28px; line-height: 36px; font-weight: 700; letter-spacing: -.03em; text-wrap: balance; }
+h2 { font-weight: 600; letter-spacing: -.01em; text-wrap: balance; }
+.verdict h2 { font-family: var(--font-display); font-size: 24px; line-height: 32px; font-weight: 700; letter-spacing: -.02em; }
+.lead { max-width: 66ch; }
+.verdict-kicker, .next h3, .panel-head h2 + p { }
+.verdict-kicker, .next h3 { font-family: var(--font-display); font-weight: 600; letter-spacing: .09em; }
+th { font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+
+/* ---- shell: a white rail with a 1px rule; the active item lifts and carries an ember mark */
+.nav { background: var(--nav); border-right: 1px solid var(--nav-line); }
+.brand b { color: var(--ink); font-family: var(--font-display); font-weight: 700; }
+.brand small { color: var(--muted); }
+.mark { background: var(--band); box-shadow: none; border-radius: 8px; }
+.nav-item { border-radius: 8px; min-height: 44px; transition: background .12s ease, color .12s ease; }
+.nav-item:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); }
+.nav-item.is-active { color: var(--ink); font-weight: 600; background: var(--surface);
+  box-shadow: inset 3px 0 0 var(--brand), inset 0 0 0 1px var(--line), var(--e-sm); }
+.conn .dot { box-shadow: none; background: var(--warn-fill); }
+.conn.ok .dot { background: var(--ok-fill); } .conn.bad .dot { background: var(--bad-fill); }
+.avatar { background: var(--surface-2); color: var(--ink-2); }
+.ghost.theme-toggle { border-radius: 8px; background: var(--surface); color: var(--ink); border-color: var(--line); min-height: 44px; }
+.ghost.theme-toggle:hover { background: var(--surface-2); border-color: var(--line-2); }
+
+/* ---- chips and pills: 6px, a status pastel, always with a word */
+.chip, .pill, .idc, .das-rec, .das-chip, .c-status, .mf, .role-tag, .chip-s, .src { border-radius: 6px; box-shadow: none; }
+.chip { font-weight: 500; }
+.chip-demo { background: var(--warn-soft); }
+.pill.brand, .role-tag { background: var(--info-soft); border-color: var(--info-line); color: var(--info); }
+.mf-this { color: var(--on-fill); background: var(--cu-action, #172554); }
+.das-rec .dd-dot, .das-rec.t-ok .dd-dot, .das-rec.t-warn .dd-dot, .das-rec.t-bad .dd-dot { box-shadow: none; }
+.das-rec.t-ok .dd-dot { background: var(--ok-fill); } .das-rec.t-warn .dd-dot { background: var(--warn-fill); } .das-rec.t-bad .dd-dot { background: var(--bad-fill); }
+
+/* ---- stepper: done = success fill, current = ember */
+.stepper { border-radius: 12px; box-shadow: none; }
+.stepper li.done .n { background: var(--ok-fill); border-color: var(--ok-fill); color: var(--on-fill); }
+.stepper li.current { color: var(--ink); }
+.stepper li.current .n { background: var(--brand); border-color: var(--brand); color: #fff; box-shadow: none; }
+:root[data-theme="dark"] .stepper li.current .n { color: #18181b; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .stepper li.current .n { color: #18181b; } }
+.page { animation: none; }
+
+/* ---- cards, fields */
+.card, .panel, .stat { box-shadow: none; }
+.hero { border-radius: 16px; box-shadow: none; }
+.hero::before { content: none; }
+.verdict-ico { background: var(--tone-fill, var(--ok-fill)); color: var(--on-fill); box-shadow: none; border-radius: 12px; }
+.hero.tone-ok { --tone: var(--ok); --tone-fill: var(--ok-fill); } .hero.tone-warn { --tone: var(--warn); --tone-fill: var(--warn-fill); }
+.hero.tone-bad { --tone: var(--bad); --tone-fill: var(--bad-fill); } .hero.tone-na { --tone: var(--na); --tone-fill: var(--na); }
+.hero.tone-na .verdict-ico { color: var(--surface); }
+.stat .v { font-family: var(--font-display); font-size: 24px; line-height: 32px; font-weight: 700; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.stat.na .v { font-family: var(--font); font-size: 16px; font-weight: 600; letter-spacing: -.006em; }
+.ico { border-radius: 8px; }
+.ico-brand, .ico-violet { background: var(--surface-2); color: var(--ink-2); }
+.ico-teal { background: var(--surface-2); color: var(--ink-2); }
+.field label { color: var(--ink); font-weight: 500; font-size: 13px; line-height: 18px; }
+.field input, .field select { height: 44px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); transition: border-color .12s ease; }
+.field input:hover, .field select:hover { border-color: var(--line-2); }
+/* 2px ember border without resizing the field: 1px border + 1px inset ring */
+.field input:focus, .field select:focus { border-color: var(--brand); background: var(--surface); box-shadow: inset 0 0 0 1px var(--brand); }
+.field.invalid input, .field.invalid select { border-color: var(--bad-fill); box-shadow: inset 0 0 0 1px var(--bad-fill); }
+.field input:disabled { background: var(--surface-2); opacity: 1; color: var(--muted); }
+.field input::placeholder { color: var(--muted); opacity: .7; }
+.src.mifin { background: var(--warn-soft); }
+.seg button { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; }
+.seg button:hover { border-color: var(--line-2); background: var(--surface-2); }
+.seg button[aria-checked="true"] { border-color: var(--line); background: var(--brand-tint); box-shadow: inset 3px 0 0 var(--brand); }
+.seg button[aria-checked="true"] b { color: var(--ink); }
+.note-new { background: var(--info-soft); color: var(--info); border-radius: 8px; }
+.form-bar { background: var(--surface); backdrop-filter: none; border-radius: 12px; box-shadow: var(--e-lg); }
+.form-bar.inline { box-shadow: none; background: none; }
+
+/* ---- buttons: ink creates, outline supports */
+.btn { height: 44px; padding: 0 16px; border-radius: 8px; font-size: 14px; transition: background .12s ease, border-color .12s ease; }
+.btn:active { transform: none; }
+.btn.primary { background: var(--cu-action, #172554); color: var(--on-ink); box-shadow: none; }
+.btn.primary:hover:not(:disabled) { background: var(--ink-fill-hover); box-shadow: none; }
+.btn.primary:active:not(:disabled) { background: var(--ink-fill-pressed); }
+.btn.primary:disabled { opacity: 1; background: var(--ink-fill-disabled); color: var(--surface); cursor: not-allowed; }
+.btn.ghost { background: var(--surface); border-color: var(--line); color: var(--ink); }
+.btn.ghost:hover:not(:disabled) { background: var(--surface-2); border-color: var(--line-2); color: var(--ink); }
+.btn.small { height: 36px; border-radius: 8px; }
+.spinner { border-color: currentColor; border-top-color: transparent; opacity: .7; }
+
+/* ---- tables, tabs, rules */
+th { background: var(--surface); border-bottom-color: var(--line); }
+td { border-bottom-color: var(--divider); }
+tbody tr:hover { background: var(--surface-2); }
+.tabs { background: var(--surface-2); border: 0; border-radius: 8px; }
+.tabs button { border-radius: 6px; font-weight: 500; color: var(--muted); }
+.tabs button:hover { color: var(--ink); }
+.tabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: var(--e-sm); }
+.tabs.light .t-all .dot { background: var(--muted); }
+.tabs.light .t-pass .dot { background: var(--ok-fill); } .tabs.light .t-fail .dot { background: var(--bad-fill); } .tabs.light .t-skip .dot { background: var(--warn-fill); }
+.rule.TRIGGERED .bar { background: var(--warn-fill); } .rule.NOT_TRIGGERED .bar { background: var(--ok-fill); }
+.rule.EVALUATION_FAILED .bar { background: var(--bad-fill); }
+.rule .act, .c-act { color: var(--link); }
+
+/* ---- policy checks: a status light + word, no glow */
+.check { border-radius: 12px; }
+.check .light svg { stroke: var(--on-fill); }
+.c-pass .light { background: var(--ok-fill); } .c-fail .light { background: var(--bad-fill); } .c-skip .light { background: var(--warn-fill); }
+.s-pass { background: var(--ok-fill); } .s-fail { background: var(--bad-fill); } .s-skip { background: var(--warn-fill); }
+.c-status { color: var(--on-fill); font-weight: 600; }
+.c-pass { background: var(--ok-soft); border-color: var(--ok-line); }
+.c-fail { background: var(--bad-soft); border-color: var(--bad-line); }
+.c-skip { background: var(--warn-soft); border-color: var(--warn-line); }
+.c-skip .c-reason { color: var(--warn); }
+
+/* ---- the AI summary: a flat bordered card, the spark a flat ink tile */
+.copilot { background: var(--info-line); box-shadow: none; padding: 1px; }
+.copilot-in { border-radius: calc(var(--radius) - 1px); }
+.spark { background: var(--band); color: #fff; border-radius: 8px; }
+.copilot p.text { max-width: 66ch; line-height: 1.7; }
+
+/* ---- loan detail cards: flat tint, a status rule on top */
+.pr-brand, .pr-teal { background: var(--surface); border-top-color: var(--line-2); }
+.pr-warn { background: var(--warn-soft); border-top-color: var(--warn-fill); }
+.pr-ok { background: var(--ok-soft); border-top-color: var(--ok-fill); }
+.next li::before { background: var(--surface-2); color: var(--ink); border-radius: 6px; }
+
+/* ---- overlays */
+dialog { border-radius: 16px; box-shadow: var(--e-lg); }
+dialog::backdrop { background: var(--scrim); backdrop-filter: none; }
+.drawer-shade, .drawer-shade[class] { background: var(--scrim); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.drawer { box-shadow: var(--e-lg); }
+.toast { background: var(--cu-action, #172554); color: var(--on-ink); border-radius: 8px; box-shadow: var(--e-lg); }
+.toast.bad { background: var(--bad-fill); color: var(--on-fill); }
+.demo-banner { background: var(--warn-soft); border-radius: 12px; }
+
+@media (prefers-reduced-motion: reduce) { * { transition-duration: .01ms !important; animation-duration: .01ms !important; } }

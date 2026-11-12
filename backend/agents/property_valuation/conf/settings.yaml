@@ -1,0 +1,18 @@
+# Property valuation: engine and agent settings (the rule catalogue is rules.yaml).
+
+# how the rule engine compares values (applies to every rule)
+engine:
+  stop_on_first_failure: false
+  include_disabled_rules_in_response: false
+  case_insensitive_text_comparison: true
+  trim_text_whitespace: true
+
+agent:
+  # stored on every property_valuation_agent_results row
+  agent_version: "1.0.0"
+  # the vendor name of a submission that names none
+  default_vendor_name: "Manual Vendor Entry"
+
+# where the LOS application / property tables are read from (same database, read only)
+los:
+  schema: public

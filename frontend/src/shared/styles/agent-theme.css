@@ -1,0 +1,99 @@
+/* THE COMMON LOOK OF EVERY AGENT SCREEN — Ink & Ember v3.0 slate neutrals (docs/DESIGN.md), Legal's layout.
+   Common to all agents: the page background, the type (Lexend body 15/22, Space Grotesk headings, mono ids), the
+   neutral surfaces, radii and the focus ring. An agent may keep its own ACCENT / status colours.
+   Selectors: html:root:root[class*="agent-"] (0,3,1) outranks every agent's scoped rules (html.agent-<id> …, at most
+   (0,2,1)). Only applies while an agent is open (the class is on <html>).
+   Colours are set for the LIGHT theme (legal's reference); in dark each agent keeps its own dark palette, so a screen
+   never shows dark text on a dark ground. Type applies in both. */
+
+/* ---------- type, radii: always ---------- */
+html:root:root[class*="agent-"] {
+  --font: "Lexend", "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-body: var(--font);
+  --font-display: "Space Grotesk", "Inter", -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  --font-mono: var(--mono);
+  --radius: 12px; --r-xs: 6px; --r-sm: 8px; --r-md: 12px; --r-lg: 16px;
+  /* large dark areas (heroes, case strips, report bands) are the BAND, not ink black (DESIGN.md v3 §3.0) */
+  --band: linear-gradient(120deg, #1E1B4B 0%, #312E81 45%, #3B57D6 100%);
+}
+
+/* ---------- page and neutral surfaces: light (system light, or light chosen) ---------- */
+html:root:root[class*="agent-"][data-theme="light"] {
+  --cu-page: #F4F6FA;
+  --bg: #F4F6FA; --canvas: #F4F6FA; --page-bg: #F4F6FA; --page-tint: transparent;
+  --surface: #FFFFFF; --raised: #F1F5F9;
+  --border: #E2E8F0; --line: #E2E8F0; --divider: #E2E8F0;
+  --text-primary: #0F172A; --text-secondary: #64748B; --text: #0F172A; --muted: #64748B;
+  --c-canvas: 244 246 250; --c-surface: 255 255 255; --c-border: 226 232 240; --c-text: 15 23 42; --c-text-2: 100 116 139;
+}
+@media (prefers-color-scheme: light) {
+  html:root:root[class*="agent-"]:not([data-theme="dark"]) {
+    --cu-page: #F4F6FA;
+    --bg: #F4F6FA; --canvas: #F4F6FA; --page-bg: #F4F6FA; --page-tint: transparent;
+    --surface: #FFFFFF; --raised: #F1F5F9;
+    --border: #E2E8F0; --line: #E2E8F0; --divider: #E2E8F0;
+    --text-primary: #0F172A; --text-secondary: #64748B; --text: #0F172A; --muted: #64748B;
+    --c-canvas: 244 246 250; --c-surface: 255 255 255; --c-border: 226 232 240; --c-text: 15 23 42; --c-text-2: 100 116 139;
+  }
+}
+
+/* ---------- the page: one background, one type scale ---------- */
+html:root:root[class*="agent-"] .agent-host {
+  background: var(--cu-page, var(--canvas, #0c0c0d)) !important;    /* no per-agent gradients / glows behind it */
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 22px;
+  letter-spacing: -.006em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+html:root:root[class*="agent-"] .agent-host::before,
+html:root:root[class*="agent-"] .agent-host::after { content: none !important; display: none !important; }
+
+/* headings: Space Grotesk, balanced */
+html:root:root[class*="agent-"] .agent-host :is(h1, h2, h3, h4) { font-family: var(--font-display); text-wrap: balance; }
+
+/* form controls take the page font (some agents left the browser default) */
+html:root:root[class*="agent-"] .agent-host :is(button, input, select, textarea) { font-family: inherit; }
+
+/* ids and codes in mono where agents mark them */
+html:root:root[class*="agent-"] .agent-host :is(code, kbd, .mono, .mono-input) { font-family: var(--mono); }
+
+/* one focus ring (ember) */
+html:root:root[class*="agent-"] .agent-host :focus-visible { outline: 2px solid #3B57D6; outline-offset: 2px; }
+
+/* ---------- components, Legal's way (not on legal itself: Mantine draws its own) ---------- */
+/* B = html:root:root[class*="agent-"]:not(.agent-legal_verification):not(.agent-docs_policy) .agent-host */
+
+/* a screen narrower than the window sits in the middle, not stuck to the left */
+html:root:root[class*="agent-"]:not(.agent-legal_verification):not(.agent-docs_policy) .agent-root > * {
+  margin-left: auto; margin-right: auto; }
+
+/* cards: Legal's 16px corners */
+html:root:root[class*="agent-"]:not(.agent-legal_verification) .agent-host :is(.card, .panel) { border-radius: 16px; }
+
+/* tables: one header style — 13px, semibold, sentence case, secondary text; rows divided by a hairline */
+html:root:root[class*="agent-"]:not(.agent-legal_verification) .agent-host table th {
+  font-family: var(--font); font-size: 13px; font-weight: 600; letter-spacing: normal; text-transform: none; }
+html:root:root[class*="agent-"]:not(.agent-legal_verification) .agent-host table td { font-size: 14px; }
+
+/* form fields: Legal's 8px corners and ember focus */
+html:root:root[class*="agent-"]:not(.agent-legal_verification) .agent-host
+  :is(select, textarea, input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color])) {
+  border-radius: 8px; }
+html:root:root[class*="agent-"] .agent-host
+  :is(select, textarea, input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file])):focus-visible {
+  outline: none !important; border-color: #3B57D6 !important; box-shadow: 0 0 0 3px rgba(59, 87, 214, .16) !important; }
+
+/* search / case-ID boxes whose BORDER IS ON THE WRAPPER (bank's .search-input): the wrapper shows focus, the input
+   inside stays bare — one box, never two (owner 2026-11-11). Boxes whose border is on the input itself (an icon laid
+   over it: document desk, crime, legal …) are covered by the plain-field rule above. */
+html:root:root[class*="agent-"] .agent-host .search-input:focus-within {
+  outline: none !important; border-color: #3B57D6 !important; box-shadow: 0 0 0 3px rgba(59, 87, 214, .16) !important; }
+html:root:root[class*="agent-"] .agent-host .search-input
+  > input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=color]):focus-visible {
+  outline: none !important; box-shadow: none !important; border-color: transparent !important; }
+
+/* ---------- a result uses the width (owner 2026-11-12: no wide empty sides after the form) ---------- */
+html:root:root[class*="agent-"] .agent-root *:has(.cu-r) { max-width: none !important; }   /* any depth */

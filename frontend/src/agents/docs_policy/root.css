@@ -1,0 +1,3 @@
+/* The old page put the rail, main, drawer and toast straight in <body>, which is the two-column grid (styles.css).
+   React mounts them inside #root, so #root takes no box of its own and its children stay the grid's items. */
+#root { display: contents; }

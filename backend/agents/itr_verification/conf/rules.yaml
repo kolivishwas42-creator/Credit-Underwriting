@@ -1,0 +1,125 @@
+# ITR verification -- the DEFAULT rule set (data, not code).
+#
+# On first use these rows are seeded into the agent's tables (rule_configs, system_settings) when those tables are
+# empty; from then on the database copy is the one in force and is edited from the Rules Config screen / the
+# /rules and /settings endpoints. Quote every YES/NO/ON/OFF-like string: YAML would read them as booleans.
+
+# Document-to-document rules (customer Input ITR vs vendor Output ITR).
+#   match_type: exact | fuzzy | numeric_tolerance | normalized
+#   tolerance_pct: numeric -> % difference allowed; fuzzy -> similarity threshold 0-1
+comparison_rules:
+  - field: pan
+    enabled: true
+    weight: 25
+    match_type: exact
+    tolerance_pct: 0.0
+    severity_if_mismatch: critical
+    description: "PAN number must be identical on both documents"
+  - field: assessment_year
+    enabled: true
+    weight: 20
+    match_type: normalized
+    tolerance_pct: 0.0
+    severity_if_mismatch: critical
+    description: "Assessment Year must match"
+  - field: total_income
+    enabled: true
+    weight: 25
+    match_type: numeric_tolerance
+    tolerance_pct: 0.0
+    severity_if_mismatch: high
+    description: "Total Income must match (within tolerance)"
+  - field: acknowledgement_number
+    enabled: true
+    weight: 20
+    match_type: exact
+    tolerance_pct: 0.0
+    severity_if_mismatch: critical
+    description: "e-Filing Acknowledgement Number must match"
+  - field: applicant_name
+    enabled: true
+    weight: 5
+    match_type: fuzzy
+    tolerance_pct: 0.85
+    severity_if_mismatch: medium
+    description: "Applicant name should be similar (OCR noise tolerant)"
+  - field: form_number
+    enabled: true
+    weight: 2
+    match_type: exact
+    tolerance_pct: 0.0
+    severity_if_mismatch: low
+    description: "ITR form type (ITR-1 / ITR-2 …)"
+  - field: status
+    enabled: true
+    weight: 3
+    match_type: exact
+    tolerance_pct: 0.0
+    severity_if_mismatch: high
+    description: "Taxpayer status (Individual / HUF / Firm …) must match"
+
+# Application values (from the loan application) checked against BOTH documents separately.
+application_rules:
+  pan_number:
+    enabled: true
+    document_field: pan
+    label: "Application PAN vs ITR PAN"
+    weight: 5
+    severity: critical
+    match_type: exact
+  assessment_year:
+    enabled: true
+    document_field: assessment_year
+    label: "Application Assessment Year vs ITR Assessment Year"
+    weight: 5
+    severity: critical
+    match_type: normalized
+  gti_income:
+    enabled: true
+    document_field: gti
+    label: "Application GTI vs ITR Gross Total Income"
+    weight: 5
+    severity: high
+    match_type: numeric
+    tolerance_pct: 0.0
+
+# Global decision settings (system_settings rows). value_type: string | number | boolean | json
+settings:
+  - key: ACCEPT_THRESHOLD
+    value: 90.0
+    value_type: number
+    description: "Score >= this value → ACCEPT"
+  - key: REVIEW_THRESHOLD
+    value: 70.0
+    value_type: number
+    description: "Score >= this and < ACCEPT → REVIEW"
+  - key: CRITICAL_BLOCKS_ACCEPT
+    value: true
+    value_type: boolean
+    description: "If any critical rule fails, decision cannot be ACCEPT"
+  - key: VENDOR_REJECTION_FORCES_REJECT
+    value: true
+    value_type: boolean
+    description: "Vendor REJECTED final_status forces overall REJECT"
+  - key: CRITICAL_APPLICATION_MISMATCH_FORCES_REJECT
+    value: false
+    value_type: boolean
+    description: "Application PAN/AY critical mismatch forces REJECT"
+  - key: FINAL_STATUS_UNKNOWN_BEHAVIOUR
+    value: "review"
+    value_type: string
+    description: "Behaviour when vendor status is missing/unrecognised: reject | review | ignore"
+  - key: FINAL_STATUS_APPROVED_VALUES
+    value: ["approved", "approve", "accepted", "accept", "pass", "passed",
+            "yes", "y", "true", "t", "1", "ok", "success"]
+    value_type: json
+    description: "Case-insensitive aliases treated as APPROVED"
+  - key: FINAL_STATUS_REJECTED_VALUES
+    value: ["rejected", "reject", "declined", "decline", "failed", "fail",
+            "no", "n", "false", "f", "0"]
+    value_type: json
+    description: "Case-insensitive aliases treated as REJECTED"
+  - key: FUZZY_NAME_THRESHOLD
+    value: 0.85
+    value_type: number
+    description: "Default fuzzy similarity threshold for name matching"

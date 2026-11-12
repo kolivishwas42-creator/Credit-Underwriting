@@ -1,0 +1,64 @@
+# ITR verification -- document handling and field extraction (data, not code).
+# Regex patterns are single-quoted YAML strings (no escape processing): write them exactly as a Python raw string.
+
+supported_file_types: [".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".webp"]
+max_file_size_mb: 15
+
+ocr:
+  enabled: true            # false when only digital PDFs are expected
+  language: eng
+  dpi: 200                 # page render resolution for OCR
+  fallback_max_pages: 3    # pdf2image last-resort OCR reads this many pages
+
+normalize:
+  pan: true                # upper-case PAN before compare
+  assessment_year: true    # convert AY to "YYYY-YY"
+
+# Canonical field names extracted from both documents
+extract_fields:
+  - applicant_name
+  - pan
+  - assessment_year
+  - acknowledgement_number
+  - total_income           # Total Income after applicable deductions
+  - gti                    # Gross Total Income, kept distinct when extracted
+  - form_number            # ITR-1, ITR-2 ...
+  - filing_date
+  - status                 # Individual / HUF etc.
+
+# field -> patterns, in order (first match wins)
+field_patterns:
+  pan:
+    - '\b([A-Z]{5}[0-9]{4}[A-Z])\b'
+    - 'PAN\s*[:\-]?\s*([A-Z]{5}[0-9]{4}[A-Z])'
+  assessment_year:
+    - 'Assessment\s*Year\s*[:\-]?\s*(\d{4}\s*[-–]\s*\d{2,4})'
+    - 'A\.?Y\.?\s*[:\-]?\s*(\d{4}\s*[-–]\s*\d{2,4})'
+    - '\b(20\d{2}\s*[-–]\s*20\d{2})\b'
+    - '\b(20\d{2}\s*[-–]\s*\d{2})\b'
+  acknowledgement_number:
+    - '(?:e-?Filing\s+)?Acknowledgement\s*(?:Number|No\.?)\s*[:\-]?\s*(\d{12,15})'
+    - 'Acknowledgement\s*(?:Number|No\.?)\s*[:\-]?\s*(\d{12,15})'
+    - '\b(\d{15})\b'
+  total_income:
+    - '(?<!Gross )Total\s+Income\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)'
+    - '1A\s*[:\-]?\s*([\d,]+)'
+  gti:
+    - 'Gross\s+Total\s+Income\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)'
+    - 'GTI\s*[:\-]?\s*(?:Rs\.?|₹)?\s*([\d,]+(?:\.\d{1,2})?)'
+  applicant_name:
+    - 'Name\s*[:\-]?\s*([A-Z][A-Za-z\s\.]+?)(?:\n|PAN|Address|Status)'
+    - 'Name\s+of\s+(?:the\s+)?(?:Assessee|Taxpayer)\s*[:\-]?\s*([A-Z][A-Za-z\s\.]+)'
+  form_number:
+    - 'Form\s*(?:Number|No\.?)\s*[:\-]?\s*(ITR-[1-7])'
+    - '\b(ITR-[1-7])\b'
+  filing_date:
+    - '(?:electronically\s+)?(?:transmitted|filed)\s+on\s+(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})'
+    - 'Date\s+of\s+[Ff]iling\s*[:\-]?\s*(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})'
+  status:
+    - 'Status\s*[:\-]?\s*(Individual|HUF|Firm|Company|AOP|BOI|Local\s+Authority|Artificial\s+Juridical\s+Person)'
+
+# Where documents named by id are read from (env ITR_VERIFICATION_DOCUMENT_SOURCE overrides the default)
+storage:
+  default_source: local    # local | s3 | dms
+  dms_timeout_seconds: 60

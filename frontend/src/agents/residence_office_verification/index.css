@@ -1,0 +1,155 @@
+/* Ink & Ember design tokens — see DESIGN.md §15.1 */
+:root {
+  /* Ink — creates */
+  --ink: #18181b; --ink-hover: #27272a; --ink-pressed: #09090b;
+  --ink-disabled: #d4d4d8; --on-ink: #ffffff;
+  --on-color: #ffffff;
+
+  /* Ember — marks selection and attention */
+  --accent: #1E40AF;
+  --accent-hover: #1E3A8A; --accent-pressed: #172554;
+  --accent-subtle: #DBEAFE;
+  --accent-tint: #EFF6FF;
+  --accent-text: #1E40AF;
+
+  /* Link — informs */
+  --link: #4f5ac7; --link-hover: #3f49ab;
+  --info-subtle: #eef0fc; --info-text: #4148a8;
+
+  /* Neutral ramp — pure grey */
+  --canvas: #f7f7f8; --surface: #ffffff;
+  --raised: #f4f4f5; --raised-hover: #ebebed;
+  --border: #eaeaec; --border-strong: #d4d4d8; --divider: #f0f0f1;
+  --text-primary: #18181b; --text-secondary: #71717a;
+  --text-disabled: #a1a1aa; --icon-default: #3f3f46;
+
+  /* Status */
+  --success: #1e8e3e; --success-subtle: #e7f4eb; --success-text: #177334;
+  --warning: #B45309; --warning-subtle: #F5E7DD; --warning-text: #92400E;
+  --error: #d14343; --error-hover: #b63838;
+  --error-subtle: #fdecec; --error-text: #b03535;
+
+  /* Utility */
+  --scrim: rgba(24, 24, 27, 0.5);
+  --e-sm: 0 1px 3px rgba(24, 24, 27, 0.06);
+  --e-md: 0 4px 12px rgba(24, 24, 27, 0.1);
+  --e-lg: 0 12px 32px rgba(24, 24, 27, 0.16);
+
+  /* Type */
+  --font-display: 'Space Grotesk', 'Inter', -apple-system, 'Segoe UI', sans-serif;
+  --font-body: 'Lexend', 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
+
+  /* Radius */
+  --r-xs: 6px; --r-sm: 8px; --r-md: 12px;
+  --r-lg: 16px; --r-xl: 20px; --r-2xl: 24px; --r-pill: 999px;
+
+  /* Spacing */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px;
+  --s6: 24px; --s7: 28px; --s8: 32px; --s10: 40px; --s12: 48px;
+
+  color-scheme: light;
+}
+
+/* System dark — must not beat an explicit light choice */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --ink: #fafafa; --ink-hover: #ffffff; --ink-pressed: #e4e4e7;
+    --ink-disabled: #3f3f46; --on-ink: #18181b; --on-color: #ffffff;
+    --accent: #60A5FA; --accent-hover: #93C5FD; --accent-pressed: #3B82F6;
+    --accent-subtle: #172554; --accent-tint: #0F1D3A; --accent-text: #93C5FD;
+    --link: #8b94e8; --link-hover: #a5acf0;
+    --info-subtle: #1d2040; --info-text: #a3aaf0;
+    --canvas: #0c0c0d; --surface: #141416;
+    --raised: #1d1d20; --raised-hover: #26262a;
+    --border: #27272a; --border-strong: #3f3f46; --divider: #1f1f22;
+    --text-primary: #fafafa; --text-secondary: #a1a1aa;
+    --text-disabled: #71717a; --icon-default: #d4d4d8;
+    --success: #3fa65c; --success-subtle: #102416; --success-text: #6fcb8d;
+    --warning: #d9a13a; --warning-subtle: #2a2010; --warning-text: #e8bc63;
+    --error: #e06a6a; --error-hover: #ec8585;
+    --error-subtle: #2e1818; --error-text: #f09090;
+    --scrim: rgba(0, 0, 0, 0.7);
+    --e-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
+    --e-md: 0 4px 12px rgba(0, 0, 0, 0.55);
+    --e-lg: 0 12px 32px rgba(0, 0, 0, 0.65);
+    color-scheme: dark;
+  }
+}
+
+/* Explicit toggle — same overrides, so it wins in both directions */
+:root[data-theme='dark'] {
+  --ink: #fafafa; --ink-hover: #ffffff; --ink-pressed: #e4e4e7;
+  --ink-disabled: #3f3f46; --on-ink: #18181b; --on-color: #ffffff;
+  --accent: #60A5FA; --accent-hover: #93C5FD; --accent-pressed: #3B82F6;
+  --accent-subtle: #172554; --accent-tint: #0F1D3A; --accent-text: #93C5FD;
+  --link: #8b94e8; --link-hover: #a5acf0;
+  --info-subtle: #1d2040; --info-text: #a3aaf0;
+  --canvas: #0c0c0d; --surface: #141416;
+  --raised: #1d1d20; --raised-hover: #26262a;
+  --border: #27272a; --border-strong: #3f3f46; --divider: #1f1f22;
+  --text-primary: #fafafa; --text-secondary: #a1a1aa;
+  --text-disabled: #71717a; --icon-default: #d4d4d8;
+  --success: #3fa65c; --success-subtle: #102416; --success-text: #6fcb8d;
+  --warning: #d9a13a; --warning-subtle: #2a2010; --warning-text: #e8bc63;
+  --error: #e06a6a; --error-hover: #ec8585;
+  --error-subtle: #2e1818; --error-text: #f09090;
+  --scrim: rgba(0, 0, 0, 0.7);
+  --e-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --e-md: 0 4px 12px rgba(0, 0, 0, 0.55);
+  --e-lg: 0 12px 32px rgba(0, 0, 0, 0.65);
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--canvas);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 22px;
+  letter-spacing: -0.006em;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  text-wrap: balance;
+}
+
+button, input, select, textarea {
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

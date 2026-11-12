@@ -1,0 +1,1791 @@
+# =============================================================================
+# Applicant Agent — FOS copilot configuration
+#
+# BUSINESS POLICY LIVES HERE, NOT IN A PROMPT. The readiness gate, the
+# document checklist and the downstream routing table are all decisions a
+# lender makes and changes; putting them in the system prompt would make them
+# invisible to review and unenforceable when the model paraphrases.
+#
+# Every value is read at request time through shared/applicant/config.py,
+# so editing this file takes effect on the next request.
+# =============================================================================
+
+agent:
+  name: "Applicant Agent"
+  enabled: true
+
+  # The summary sentence only. Every fact it states comes from a tool result.
+  #
+  # OFF BY DEFAULT on the current CPU deployment (a product decision taken on
+  # measurement): with qwen2.5:3b, knowledge phrasing took ~1.9 s P50 against
+  # ~28 ms deterministic, 7 of 16 calls hit the 2.5 s budget, only 4 of 16
+  # outputs were used, and content inspection found invented attributes and
+  # changed meanings (all caught by the fidelity checks, at the cost of the
+  # latency). The capability stays pluggable: APPLICANT_AGENT_LLM_ENABLED=true
+  # turns it on for hardware/models that measure better. Live-state answers are
+  # never phrased by the model either way (model_routing.never below).
+  llm_enabled: false
+  temperature: 0.1
+
+  # Deterministic answers skip the model entirely. A single-fact question --
+  # "is PAN verified?" -- is answered from the tool result, because sending it
+  # to a model adds a second of latency and a chance of paraphrasing the fact.
+  llm_for_simple_intents: false
+
+  # MODEL POLICY (acceptance pass): the one-sentence case summary on a FOS
+  # answer is the computed text; the model does not phrase it. Measured on
+  # qwen2.5:3b it cost ~1 s per deterministic case answer for the same facts.
+  llm_for_case_summary: false
+
+# -----------------------------------------------------------------------------
+# WORKFLOW
+#
+# The FOS-stage states. Configurable because not every lender uses these four,
+# and an organisation that adds one should not have to edit Python.
+# -----------------------------------------------------------------------------
+workflow:
+  states:
+    - APPLICATION_CREATED
+    - DOCUMENT_COLLECTION
+    - BASIC_DOCUMENT_VERIFICATION
+    - READY_FOR_CPA
+
+# -----------------------------------------------------------------------------
+# DOCUMENT CHECKLIST
+#
+# What each product requires before the case may leave the FOS stage. The
+# checklist is per product, with `default` used when no product is set yet.
+#
+# `any_of` groups alternatives: one satisfies the slot. Address proof is the
+# usual case -- a licence and a passport are equally good evidence of address.
+# -----------------------------------------------------------------------------
+# A slot is either `required` (blocks the CPA handoff) or `optional` (tracked
+# and reported, never blocking). ADDING A TYPE DOES NOT MAKE IT MANDATORY:
+# a new slot is only required if it is listed under `required`, so the
+# taxonomy can grow ahead of the policy.
+#
+# `accepts` names the document types the LOS pipeline may classify a file as
+# to satisfy the slot. Several types in one slot means any of them will do --
+# a licence and a passport are equally good evidence of address.
+documents:
+  # Used when no product is set yet, so a case still has something to be
+  # measured against rather than appearing complete by accident.
+  default:
+    required:
+      - slot: PAN
+        accepts: [PAN]
+        reason: >-
+          PAN is the applicant's identity proof at the FOS stage: it establishes
+          who is applying, and its name, date of birth and PAN number are what the
+          other documents are matched against in the KYC check.
+      - slot: ADDRESS_PROOF
+        accepts: [DRIVING_LICENCE, PASSPORT, VOTER_ID]
+        reason: >-
+          An officially valid document evidencing the applicant's address. Any
+          one of the accepted types satisfies the requirement.
+
+  # PERSONAL_LOAN IS RESOLVED FROM config/policies/personal_loan.yaml.
+  #
+  # That file is the authority: it carries the amount bands, the conditional
+  # rules and the version a case is pinned to, none of which can be
+  # expressed here. This entry is the FALLBACK used only if the policy file
+  # is missing or will not parse, and it is deliberately identical to that
+  # file's BASE requirements -- two files describing the same product will
+  # drift, and when they did, /config advertised one checklist while real
+  # cases were measured against another.
+  #
+  # Do not add an amount-dependent slot here. It cannot be conditional in
+  # this file, so it would be imposed on every application.
+  PERSONAL_LOAN:
+    required:
+      - slot: PAN
+        accepts: [PAN]
+        reason: >-
+          PAN is the applicant's identity proof at the FOS stage: it establishes
+          who is applying, and its name, date of birth and PAN number are what the
+          other documents are matched against in the KYC check.
+      - slot: ADDRESS_PROOF
+        accepts: [DRIVING_LICENCE, PASSPORT, VOTER_ID]
+        reason: >-
+          An officially valid document evidencing the applicant's address. Any
+          one of the accepted types satisfies the requirement.
+      - slot: BANK_STATEMENT
+        accepts: [BANK_STATEMENT]
+        reason: >-
+          A bank statement evidences the applicant's banking relationship and
+          is passed to the credit stage for assessment.
+      - slot: SIGNATURE
+        accepts: [SIGNATURE]
+        reason: >-
+          Mandatory for every product. A photo of the applicant's signature for the application record. It is
+          checked by the signature service; without a reference specimen it is
+          REVIEW, never PASS.
+    optional: []
+
+  # `reason` is what the Copilot says when asked WHY a document is needed --
+  # what the document is used for in this process, never a lending rule.
+  HOME_LOAN:
+    required:
+      - slot: PAN
+        accepts: [PAN]
+        reason: >-
+          PAN is the applicant's identity proof at the FOS stage: it establishes
+          who is applying, and its name, date of birth and PAN number are what the
+          other documents are matched against in the KYC check.
+      - slot: BANK_STATEMENT
+        accepts: [BANK_STATEMENT]
+        reason: >-
+          A bank statement evidences the applicant's banking relationship and
+          is passed to the credit stage for assessment.
+      - slot: ADDRESS_PROOF
+        accepts: [DRIVING_LICENCE, PASSPORT, VOTER_ID]
+        reason: >-
+          An officially valid document evidencing the applicant's address. Any
+          one of the accepted types satisfies the requirement.
+      # Mandatory for every product (owner 2026-10-09), as for Personal Loan; verified on its own by the
+      # signature service (REVIEW without a specimen), never matched against the other documents
+      - slot: SIGNATURE
+        accepts: [SIGNATURE]
+        reason: >-
+          Mandatory for every product. A photo of the applicant's signature for the application record. It is
+          checked by the signature service; without a reference specimen it is REVIEW, never PASS.
+    optional:
+      - slot: ITR
+        accepts: [ITR]
+        reason: Income tax returns evidence declared income for the credit stage.
+      - slot: SALARY_SLIP
+        accepts: [SALARY_SLIP]
+        reason: Salary slips evidence current salaried income for the credit stage.
+      - slot: EMPLOYMENT_PROOF
+        accepts: [EMPLOYMENT_PROOF]
+        reason: Employment proof evidences the applicant's current employer.
+      # INDUSTRY DEFAULT (2026-10-11, owner: "industry level prod ready"; policy_status UNCONFIRMED until the business
+      # signs it off): a home loan's property is often not finalised at login, so its title document is OPTIONAL at
+      # FOS and required at CPA (stage_requirements.yaml CPA_PROPERTY)
+      - slot: PROPERTY_DOCUMENT
+        accepts: [SALE_DEED]
+        reason: The property's title document (sale deed). Optional at FOS for a home loan; CPA requires proof of
+          ownership of the property.
+
+  # LOAN AGAINST PROPERTY -- INDUSTRY DEFAULT (2026-10-11, owner: "industry level prod ready"), UNCONFIRMED until the
+  # business signs it off. Common Indian LAP login practice: identity and address KYC, banking, the signature, and
+  # -- because the loan is secured on property the applicant ALREADY owns -- the property's title document at login.
+  # Income documents are optional here (CPA asks for them: stage_requirements.yaml CPA_INCOME).
+  LOAN_AGAINST_PROPERTY:
+    required:
+      - slot: PAN
+        accepts: [PAN]
+        reason: >-
+          PAN is the applicant's identity proof at the FOS stage: it establishes
+          who is applying, and its name, date of birth and PAN number are what the
+          other documents are matched against in the KYC check.
+      - slot: ADDRESS_PROOF
+        accepts: [DRIVING_LICENCE, PASSPORT, VOTER_ID]
+        reason: >-
+          An officially valid document evidencing the applicant's address. Any
+          one of the accepted types satisfies the requirement.
+      - slot: BANK_STATEMENT
+        accepts: [BANK_STATEMENT]
+        reason: >-
+          A bank statement evidences the applicant's banking relationship and
+          is passed to the credit stage for assessment.
+      - slot: SIGNATURE
+        accepts: [SIGNATURE]
+        reason: >-
+          Mandatory for every product. A photo of the applicant's signature for the application record. It is
+          checked by the signature service; without a reference specimen it is REVIEW, never PASS.
+      - slot: PROPERTY_DOCUMENT
+        accepts: [SALE_DEED]
+        reason: >-
+          The title document of the property the loan is secured on. Its owner (the buyer on the deed) must be the
+          applicant or a co-applicant -- checked against the application (KYC property ownership).
+    optional:
+      - slot: ITR
+        accepts: [ITR]
+        reason: Income tax returns evidence declared income for the credit stage.
+      - slot: SALARY_SLIP
+        accepts: [SALARY_SLIP]
+        reason: Salary slips evidence current salaried income for the credit stage.
+      - slot: EMPLOYMENT_PROOF
+        accepts: [EMPLOYMENT_PROOF]
+        reason: Employment proof evidences the applicant's current employer.
+
+# The FOS-stage taxonomy. Naming a type here makes it selectable on upload and
+# renderable in a dropdown; it does NOT make it required anywhere. A product
+# becomes subject to a type only by listing a slot that accepts it above.
+document_types:
+  - PAN
+  - AADHAAR
+  - DRIVING_LICENCE
+  - PASSPORT
+  - VOTER_ID
+  - BANK_STATEMENT
+  - SALARY_SLIP
+  - ITR
+  - FORM_16
+  - EMPLOYMENT_PROOF
+  # the property's title document (LAP required, HL optional at FOS -- industry default 2026-10-11)
+  - SALE_DEED
+  # PHOTO removed: the signature photo (SIGNATURE, verified by the signature
+  # service) takes its place on the checklists.
+  - SIGNATURE
+
+# -----------------------------------------------------------------------------
+# READINESS GATE
+#
+# "Is this complete enough to hand to CPA?" -- NOT "will the loan be approved?".
+# Each rule can be switched off, and switching one off is reported in the
+# response rather than silently changing the verdict.
+# -----------------------------------------------------------------------------
+readiness:
+  require_applicant_fields: true
+  require_application_fields: true
+  require_all_documents: true
+  require_documents_verified: true
+
+  # A document sitting in REVIEW blocks the handoff. Set false where a lender
+  # lets CPA adjudicate reviews instead of the FOS.
+  block_on_review: true
+
+  # CO-APPLICANT MANDATORY DOCUMENTS (Phase 3 step 5b). Enforced ONLY while
+  # LOS_COAPP_MANDATORY_DOCS=true (default off). One slot each; ANY ONE accepted
+  # type satisfies it, matched against the co-applicant's own documents and
+  # verified by the existing OCR + verification + KYC flow. Confirmed 2026-10-07:
+  # ONLY PAN, address proof and employment proof -- no bank statement.
+  #   accepts_self_employed: added to `accepts` (the application's employment
+  #   type is the applicant's, so it cannot choose for the co-applicant).
+  # NOTE: UTILITY_BILL, EMPLOYMENT_LETTER, OFFER_LETTER, EMPLOYEE_ID,
+  # BUSINESS_REGISTRATION and GST_CERTIFICATE are not yet classifiable types.
+  co_applicant_documents:
+    - slot: PAN
+      accepts: [PAN]
+    - slot: ADDRESS_PROOF
+      accepts: [AADHAAR, PASSPORT, DRIVING_LICENCE, VOTER_ID, UTILITY_BILL]
+    - slot: EMPLOYMENT_PROOF
+      accepts: [SALARY_SLIP, EMPLOYMENT_LETTER, OFFER_LETTER, EMPLOYEE_ID]
+      accepts_self_employed: [BUSINESS_REGISTRATION, GST_CERTIFICATE, ITR]
+
+  # MANDATORY SIGNATURE (Phase 3 step 5c). Enforced ONLY while
+  # LOS_SIGNATURE_MANDATORY=true (default off), for the applicant and every
+  # co-applicant: a signature whose PRESENCE check (blank / handwritten, never
+  # matched against another signature) is VERIFIED. REJECTED or REVIEW blocks.
+  # GRANDFATHERED: applies only to cases CREATED at or after activation_date
+  # (ISO date or datetime; no timezone = UTC). Set it on the day the flag is
+  # turned on. Older cases are listed by scripts/report_signature_gaps.py
+  # instead of being blocked. Flag on with no valid date FAILS CLOSED: every
+  # case reports SIGNATURE_RULE_MISCONFIGURED until the date is set.
+  signature_mandatory:
+    activation_date: "2026-10-08"   # LOS_SIGNATURE_MANDATORY turned on this day
+
+# -----------------------------------------------------------------------------
+# PERMISSIONS
+#
+# Scope names checked against the JWT's `scope` / `scp` claim. Enforced in the
+# tool layer, outside the model, so no prompt can grant one.
+# -----------------------------------------------------------------------------
+permissions:
+  enforce: true
+
+  # A token carrying this scope satisfies every read below. Convenience for
+  # service accounts; it grants no write.
+  read_all_scope: "los.read"
+
+  # The service scope that may read and write ANY applicant's case. Every
+  # other caller reaches only the applicants and cases its own subject
+  # created (shared/security/access.py).
+  write_all_scope: "los.write"
+
+  read:
+    applicant: "read_applicant"
+    application: "read_application"
+    documents: "read_documents"
+    verification: "read_verification"
+    pending_items: "read_pending_items"
+    next_action: "read_next_action"
+
+  write:
+    create_applicant: "create_applicant"
+    update_applicant: "update_applicant"
+    create_application: "create_application"
+    upload_document: "upload_document"
+
+  # Never served by this agent whatever scope a token carries. Listed so the
+  # denial is a configured decision rather than an accident of omission.
+  denied:
+    - credit_decision
+    - risk_analysis
+    - kyc_decision
+    - rcu_analysis
+
+# -----------------------------------------------------------------------------
+# OUT-OF-SCOPE ROUTING
+#
+# Where a question belongs when it is not the FOS stage's to answer. The agent
+# names the destination and answers nothing on its behalf.
+# -----------------------------------------------------------------------------
+routing:
+  CREDIT_SCORE:      { route_to: CREDIT_AGENT,   message: "Credit and bureau information is handled by the downstream Credit process.",
+                       suggestions: ["What is still pending on my case?", "What stage is my application at?"] }
+  RISK:              { route_to: RISK_AGENT,     message: "Risk scoring is handled by the downstream Risk process.",
+                       suggestions: ["What is still pending on my case?", "What stage is my application at?"] }
+  KYC_DECISION:      { route_to: KYC_AGENT,      message: "The full KYC decision is handled by the downstream KYC process.",
+                       suggestions: ["What is still pending on my case?", "What stage is my application at?"] }
+  RCU_FRAUD:         { route_to: RCU_AGENT,      message: "RCU and fraud investigation is handled by the downstream RCU process.",
+                       suggestions: ["What is still pending on my case?", "What stage is my application at?"] }
+  FINANCIAL_ANALYSIS: { route_to: CREDIT_AGENT,   message: "Bank statement and income analysis is handled by the downstream Credit process.",
+                       suggestions: ["What is still pending on my case?", "What stage is my application at?"] }
+  LOAN_DECISION:     { route_to: DECISION_AGENT, message: "The lending decision is made downstream, after CPA.",
+                       suggestions: ["What is still pending on my case?", "Is my case ready for CPA?"] }
+  # DOMAIN-ADJACENT (scope policy): a reason, a redirect, and what to ask instead.
+  ELIGIBILITY_AMOUNT: { route_to: CREDIT_AGENT,  message: "How much you can borrow, and when it is disbursed, are worked out by the credit team after CPA, not at this stage.",
+                        suggestions: ["What loan amount did I apply for?", "What is still pending on my case?"] }
+  LOAN_TERMS:        { route_to: CREDIT_AGENT,   message: "Interest rate, EMI and fees are set when the loan is sanctioned after the credit assessment, so I can't quote or change them here. Your relationship manager can discuss terms.",
+                       suggestions: ["What is my loan amount and tenure?", "What is still pending on my case?"] }
+  INVESTMENT_ADVICE: { route_to: NONE,           message: "I can't give investment or financial advice. I'm set up only for your loan application.",
+                       suggestions: ["What stage is my application at?", "Which documents are pending?"] }
+  PRODUCT_ADVICE:    { route_to: NONE,           message: "I can't recommend which loan to choose, your relationship manager can help with that. I can tell you what each product needs.",
+                       suggestions: ["What documents do I need for a personal loan?", "What documents do I need for a home loan?"] }
+
+# -----------------------------------------------------------------------------
+# MCP RUNTIME -- how the Copilot reaches its case tools (shared/mcp/runtime.py)
+# -----------------------------------------------------------------------------
+# mode:
+#   in_process -- await the capability coroutines directly (no MCP messages).
+#                 The safe local default: nothing to start.
+#   protocol   -- real MCP: JSON-RPC initialize / tools/call against the case
+#                 MCP server (shared/mcp/case_server.py), which re-checks the
+#                 caller's scopes and case ownership itself.
+# transport (protocol mode only):
+#   memory -- the server in this process, over MCP in-memory streams
+#   stdio  -- the server as a child process (python -m shared.mcp.case_server)
+#   http   -- a separately deployed server at server_url (streamable HTTP)
+# fallback: what protocol mode does when the MCP server cannot be reached.
+#   fail       -- the tool call fails (the answer names the gap). Production.
+#   in_process -- run the capability directly; the trace says so.
+# Environment overrides: LOS_MCP_MODE, LOS_MCP_TRANSPORT, LOS_MCP_SERVER_URL,
+# LOS_MCP_FALLBACK, LOS_MCP_MAX_RESULT_BYTES, LOS_MCP_ALLOWED_TOOLS.
+#
+# IDENTITY: every protocol call carries the caller's own signed JWT in
+# `_meta.authorization`; the server re-validates it (JWKS, issuer, audience,
+# expiry) and re-authorises scope and ownership itself. No identity the
+# client asserts is trusted. The server needs the same JWT_JWKS_URL,
+# JWT_ISSUER and JWT_AUDIENCE as the API.
+#
+# PRODUCTION PROFILE (set in the deployment environment, not here, so a
+# local checkout needs nothing running):
+#   LOS_MCP_MODE=protocol
+#   LOS_MCP_TRANSPORT=http          # server: python -m shared.mcp.case_server --http
+#   LOS_MCP_SERVER_URL=https://<case-mcp-host>/mcp
+#   LOS_MCP_FALLBACK=fail           # never silently bypass the boundary
+# /ready reports the MCP path and returns 503 when protocol mode is
+# MISCONFIGURED or UNAVAILABLE without an explicit in_process fallback.
+mcp:
+  mode: in_process
+  transport: memory
+  server_url: "http://127.0.0.1:8030/mcp"
+  call_timeout_seconds: 5.0
+  connect_timeout_seconds: 20.0
+  fallback: fail
+  # The largest tool result carried either way; larger is refused.
+  max_result_bytes: 262144
+  # Narrow the server's tools (never widen past the read contracts).
+  # Empty: every read contract.
+  allowed_tools: []
+
+# -----------------------------------------------------------------------------
+# TIMEOUTS
+# -----------------------------------------------------------------------------
+timeouts:
+  tool_seconds: 5.0
+
+  # THE COPILOT'S OWN BUDGET, and deliberately not the LOS summary's 1.5 s.
+  #
+  # These are different surfaces. The LOS summary is one sentence appended to
+  # a document-processing response, where a model that cannot finish inside
+  # 1.5 s is not worth waiting for. This is an interactive question a field
+  # officer asked and is waiting on, and where the whole request does nothing
+  # else.
+  #
+  # Measured on the reference host, the same copilot prompt at four different
+  # output caps (4 generations each):
+  #
+  #     max_tokens   median    max     within 1.5 s
+  #      48          2525 ms  2911 ms     0/4
+  #      64          2293 ms  2619 ms     0/4
+  #      96          2356 ms  2504 ms     0/4
+  #     160          2213 ms  2515 ms     0/4
+  #
+  # Cost is flat across the caps, so it is prompt processing rather than
+  # output length: 1.5 s could not be met by shortening the answer. 3 s clears
+  # the measured maximum with room, and overrunning it still costs only the
+  # phrasing -- the deterministic answer is already computed.
+  llm_seconds: 3.0
+
+  total_seconds: 30.0
+
+# -----------------------------------------------------------------------------
+# UNIVERSAL COPILOT
+#
+# How the conversational layer understands, composes and checks an answer.
+# Every key below is read at request time by shared/applicant/config.py
+# (`chatbot()` and the typed accessors beside it); nothing here is decorative.
+#
+# THE ORDER OF AUTHORITY IS FIXED IN CODE, NOT HERE: case records, then tool
+# results, then specialist-agent results, then knowledge. The model only ever
+# phrases facts already established -- it cannot change a status, a decision
+# or a verdict, and the validator below rejects any answer that tries.
+# -----------------------------------------------------------------------------
+chatbot:
+  # SCORES IN THE CHAT TEXT. Off: an answer says "KYC needs review because the
+  # name differs", never "the recorded score is 13" or "(score 100, confidence
+  # 90)" -- internal numbers read as backend output to the person chatting
+  # (bug report 2026-10-05). The numbers stay in the structured response
+  # fields (kyc.score, verification.documents_processed[].score) for a
+  # frontend that chooses to show them. APPLICANT_AGENT_SHOW_SCORES overrides.
+  show_scores: false
+
+  llm:
+    # provider/model are resolved by shared/llm/provider.py (OLLAMA_* env);
+    # named here so the configuration says what it runs against.
+    provider: ollama
+    model: qwen3:4b-instruct-2507-q4_K_M
+    # Override agent.temperature and timeouts.llm_seconds when set.
+    temperature: 0.1
+    # 2-3 s RESPONSE TARGET: the handbook-phrasing call gets at most 2.5 s;
+    # when the model cannot finish in time the retrieved passage is published.
+    timeout_seconds: 2.5
+    max_output_tokens: 180
+
+  # Phase 3: WHO PHRASES A CASE ANSWER when retrieval added nothing.
+  # case_answers: true -- Qwen phrases the structured answer from the
+  #   evidence packet, ONCE per question (the agent then skips its own model
+  #   call), and `check_composed` validates it; a rejected or late phrasing
+  #   falls back to the structured answer. Recorded values that are quoted
+  #   (review reasons, names) are never handed to the model.
+  # timeout_seconds -- measured on this deployment's qwen2.5:3b via Ollama:
+  #   ~4.8 s cold, 1.6-2.0 s warm. 6.0 covers a cold start.
+  compose:
+    # false -- MODEL POLICY (acceptance pass): a case / status / stage /
+    #   profile answer is a recorded fact and is published as built, with no
+    #   model call; the model phrases knowledge answers only. Measured with
+    #   case_answers: true on qwen2.5:3b: p50 860 ms, p95 2.5 s, and the
+    #   accepted phrasing was the structured sentence in every sampled case.
+    case_answers: false
+    # 2-3 s RESPONSE TARGET (measured on qwen2.5:3b, CPU: a NEW prompt costs
+    # ~8.5 ms/token to evaluate and generation runs ~18 tokens/s). The model
+    # is used when it can finish inside the budget; otherwise the recorded
+    # (deterministic) answer is published. Ollama aborts an abandoned call,
+    # so a timeout never queues the next request.
+    timeout_seconds: 2.5
+    request_budget_seconds: 2.8
+    # What a knowledge (handbook) phrasing call is shown -- smaller prompt,
+    # faster answer.
+    knowledge_passages: 2
+    knowledge_context_chars: 700
+
+  response:
+    # Phase 3: at most TWO sentences by default. The character ceiling is a
+    # guard, not a target -- the prompts ask for ~350 -- because a hard
+    # count must never cost a required fact.
+    max_sentences: 2
+    max_characters: 500
+
+  grounding:
+    expose_internal_ids: false
+    expose_internal_reason_codes: false
+
+  validation:
+    enabled: true
+    reject_hallucination: true          # unsupported numbers / statuses / names
+    reject_missing_required_facts: true # the reason, the names, the pending document
+    reject_internal_id_leak: true
+    reject_status_change: true          # a hold the record states must be stated
+    # One constrained retry after a rejection, told what was wrong. Off by
+    # default: each attempt costs a model call on an interactive request.
+    regenerate_attempts: 0
+
+  fallback:
+    # What replaces a model answer that failed or was rejected. Only
+    # `structured_answer` is supported: the deterministic answer built from
+    # the records is always computed first.
+    llm_failure: structured_answer
+    validation_failure: structured_answer
+    rag_failure: case_or_structured_answer
+
+  # The display name of each LOS stage, in answers. A stage added to the
+  # stage registry and named here needs no chatbot change.
+  stages:
+    labels:
+      FOS: FOS
+      CPA: CPA
+      CREDIT: Credit
+      RCU: RCU
+      BOPS: BOPS
+      HOPS: HOPS
+      DISBURSEMENT: Disbursement
+
+    # WHAT EACH STAGE CAN ANSWER. Read by shared/los/stage_registry.py
+    # on every request. A capability is honoured only if this build has a
+    # provider for it (stage_registry.PROVIDERS); any other name is ignored
+    # and logged, so configuration can switch a capability off but can never
+    # claim one that does not exist. `not_available` names stage-specific
+    # information nothing produces yet -- the Copilot says so plainly.
+    # `enabled: false` withdraws every capability from a stage.
+    capabilities:
+      FOS:
+        enabled: true
+        capabilities: [stage_status, stage_history, document_requirements,
+                       pending_items, next_action, document_status,
+                       case_history, process_knowledge, eligibility,
+                       case_facts, checklist, readiness]
+      CPA:
+        enabled: true
+        capabilities: [stage_status, stage_history, document_requirements,
+                       pending_items, next_action, document_status,
+                       case_history, process_knowledge]
+        not_available: [CPA assessment details]
+      CREDIT:
+        enabled: true
+        capabilities: [stage_status, stage_history, document_requirements,
+                       pending_items, next_action, document_status,
+                       case_history, process_knowledge, eligibility]
+        not_available: [credit decision details]
+      RCU:
+        enabled: true
+        capabilities: [stage_status, stage_history, document_requirements,
+                       pending_items, next_action, document_status,
+                       case_history, process_knowledge]
+        not_available: [RCU investigation findings]
+      BOPS:
+        enabled: true
+        capabilities: [stage_status, stage_history, document_requirements,
+                       pending_items, next_action, document_status,
+                       case_history, process_knowledge]
+        not_available: [BOPS processing details]
+      HOPS:
+        enabled: true
+        capabilities: [stage_status, stage_history, document_requirements,
+                       pending_items, next_action, document_status,
+                       case_history, process_knowledge]
+        not_available: [HOPS approval details]
+      DISBURSEMENT:
+        enabled: true
+        capabilities: [stage_status, stage_history, document_requirements,
+                       pending_items, next_action, document_status,
+                       case_history, process_knowledge]
+        not_available: [disbursement details]
+
+    # Which capability each case question needs. A question whose
+    # capability the current stage lacks is answered with the stage and a
+    # plain "not available for this stage" -- never with another stage's
+    # answer. Intents not listed need no stage capability.
+    intent_capabilities:
+      READINESS: readiness
+      COMPLETENESS: readiness
+      ELIGIBILITY: eligibility
+      DOCUMENTS_REQUIRED: document_requirements
+      DOCUMENTS_MISSING: pending_items
+      DOCUMENTS_PENDING: pending_items
+      PENDING_ITEMS: pending_items
+      NEXT_ACTION: next_action
+      CASE_HISTORY: case_history
+
+  # Short forms, abbreviations, common misspellings and Hinglish, rewritten to
+  # full words BEFORE classification. Whole words only, longest first. A word
+  # that is not here but is close to a vocabulary word (or to a configured
+  # document type or checklist slot) is corrected by similarity -- see
+  # shared/applicant/normalize.py.
+  normalization:
+    enabled: true
+    fuzzy: true
+    # real words the fuzzy typo layer must never "correct" (2026-10-18: "stock statement" became "stuck statement",
+    # "stock tips" became the stuck-cases list)
+    keep: [stock, stocks, share, shares, crypto, fund, funds]
+    synonyms:
+      dis: this
+      intrest: interest
+      intrst: interest
+      scor: score
+      dat: that
+      abt: about
+      wat: what
+      wht: what
+      docs: documents
+      doc: document
+      dox: documents
+      documnts: documents
+      app: application
+      # THE CO-APPLICANT, however it is shortened. Longer than "app", so it
+      # is rewritten first and "co-app" never becomes "co-application".
+      co-app: co-applicant
+      co app: co-applicant
+      coapp: co-applicant
+      coapplicant: co-applicant
+      co-apps: co-applicants
+      appln: application
+      applicaton: application
+      stmt: statement
+      stmnt: statement
+      statemnt: statement
+      bank stmt: bank statement
+      acct: account
+      a/c: account
+      addr: address
+      add proof: address proof
+      address doc: address proof
+      pan card: pan
+      aadhar card: aadhaar
+      aadhaar card: aadhaar
+      aadhar: aadhaar
+      dl: driving licence
+      driving license: driving licence
+      sal slip: salary slip
+      salary slips: salary slip
+      payslip: salary slip
+      pay slip: salary slip
+      verfied: verified
+      varified: verified
+      r: are
+      u: you
+      ur: your
+      pls: please
+      plz: please
+      wat: what
+      wats: what is
+      whats: what is
+      what's: what is
+      hows: how is
+      where's: where is
+      y: why
+      stg: stage
+      # SMS-style short forms officers type (held-out evaluation 2026-10-12)
+      pndng: pending
+      pendng: pending
+      pnding: pending
+      stts: status
+      sts: status
+      lone amount: loan amount
+      lone amout: loan amount
+      amt: amount
+      kyc stts: kyc status
+      shw: show
+      sho: show
+      al: all
+      custmer: customer
+      custmers: customers
+      costumer: customer
+      costumers: customers
+      stge: stage
+      stgae: stage
+      satge: stage
+      curr: current
+      cur: current
+      # Hinglish
+      mera: my
+      meri: my
+      mere: my
+      kya: what
+      kyu: why
+      kyun: why
+      kyon: why
+      kaunsa: which
+      konsa: which
+      kaun sa: which
+      kab: when
+      hai: is
+      chahiye: needed
+      # "meri file kaha tak aayi" -> "my file status"
+      kaha tak: status
+      kahan tak: status
+      aayi: ""
+      aaya: ""
+      pahunchi: ""
+      pahuncha: ""
+      # "bank stmt ka kya hua" -> "bank statement status"
+      kya hua: status
+      ka: ""
+      ki: ""
+      ke: ""
+      # "KYC wala detail" -> "KYC detail" (FOS plan 5 follow-up)
+      wala: ""
+      waala: ""
+      wali: ""
+      wale: ""
+    vocabulary:
+      - application
+      - stage
+      - current
+      - applications
+      - document
+      - documents
+      - pending
+      - verified
+      - verification
+      - status
+      - statement
+      - review
+      - address
+      - proof
+      - salary
+      - slip
+      - licence
+      - passport
+      - missing
+      - required
+      - upload
+      - uploaded
+      - eligibility
+      - aadhaar
+      - rejected
+      - mismatch
+      - checklist
+      - approved
+      - income
+      - account
+      # 2026-10-12: words of the questions officers ask most, so their misspellings are corrected too
+      - amount
+      - customer
+      - applicant
+      # (not "borrower": the real word "borrow" was being corrected into it)
+      - tenure
+      - readiness
+
+  # QUESTION UNDERSTANDING (shared/applicant/semantic_frame.py).
+  #
+  # Meaning is parsed into a semantic FRAME (task / object / qualifiers /
+  # referents) from concept classes (config/semantic_concepts.yaml), never
+  # from listed sentences. When the rules cannot read a question, the LLM
+  # ROUTER below is consulted (step 6b). The old frame call (llm_fallback,
+  # measured 2026-09-28 at p50 4.4 s, 5 of 8 frames wrong) is retired: the
+  # router replaced it in the same slot. COPILOT_UNDERSTANDING_LLM is a
+  # deprecated alias of COPILOT_LLM_ROUTER (startup warning; removed after go-live).
+  understanding:
+    llm_fallback: false
+    llm_timeout_seconds: 1.5
+
+  # LLM ROUTER (copilot/semantics/llm_router.py, step 6b). FAST LANE FIRST: the
+  # rules answer what they can (~20 ms); ONLY a question they cannot read goes to
+  # Qwen, which picks ONE tool from this catalogue as JSON. It never answers,
+  # never sees case data, never decides access (the input guardrail runs first;
+  # every tool enforces ownership). The chosen tool becomes its canonical question
+  # below, which the same rules then route -- one engine. Invalid output, a
+  # timeout, Ollama down or low memory -> the fast lane's one clarifying question.
+  # COPILOT_LLM_ROUTER=false is the emergency kill-switch.
+  #
+  # LATENCY (step 1 bench, qwen2.5:3b Q4_K_M, CPU): JSON p50 1.6 s. The system
+  # prefix (instructions + this catalogue) is BYTE-IDENTICAL on every call so
+  # Ollama reuses its prompt cache; only the state line and the question follow.
+  router:
+    enabled: true
+    # QWEN UNDERSTANDS EVERY QUESTION (owner, 2026-10-13: "no keywords, Qwen samjhega"): llm_first -> Qwen reads
+    # every question and its reading wins; the rules answer only when Qwen is unavailable / slow. Other modes:
+    # fallback (rules first, Qwen for what they cannot read), second_opinion. Env COPILOT_ROUTER_MODE overrides.
+    # 2026-10-13 (measured): Qwen's front door is the MEANING layer (intent_catalogue.yaml decide.model_always) --
+    # a second Qwen call here doubled the time for the same reading, so this router stays the fallback for what
+    # the meaning layer could not read
+    mode: fallback
+    # qwen3 4B INSTRUCT (2026-10-13 bench, CPU): refused the "max FOIR?" trap the 3B answered with an invented 55%.
+    # (The earlier "qwen3:4b, no gain" B9 note was the THINKING variant, which always reasons out loud.)
+    model: qwen3:4b-instruct-2507-q4_K_M
+    timeout_seconds: 2.5
+    min_free_ram_gb: 1.5
+    max_question_chars: 400
+    num_predict: 40
+    decision_cache: { ttl_seconds: 600, max_entries: 512 }
+    # 6b-tune A/B (evals/perf/router_ab.py, 2026-10-07): V4 chosen -- readable keys,
+    # 8 few-shot examples, short descriptions. 72.2% overall (75.9% counting
+    # refuse/out_of_scope as the same safe answer), 68.2% on the messages that reach
+    # the router, p50 1608 ms, p95 1995 ms. TARGET (>= 90%) NOT MET -- see CHANGES_LOG.
+    output_keys: readable
+    # 6b-tune-2 (evals/perf/router_tune2.py, 2026-10-07): B8 chosen. On the messages that
+    # reach the router: 9 correct, 0 wrong, 2 clarifying questions; ~30 ms (the bank
+    # answers; Qwen only when the bank is unsure). See CHANGES_LOG.
+    # EXAMPLE BANK first (shared/config/router_bank.yaml + evals/router_misses.yaml):
+    # answered without the model when the best tool scores >= threshold AND beats the
+    # best other tool by >= margin.
+    embedding: { enabled: true, vectoriser: char, threshold: 0.45, margin: 0.05, include_misses: true }
+    # Qwen's answer is constrained by a JSON schema (enum of tools and values): invalid output impossible
+    constrained: true
+    # the bank (weaker opinion) and Qwen disagree -> one-tap question with both, never a guess
+    agreement: true
+    # measured and NOT kept (no gain): normalise (B2), hierarchical (B6), case labels (B7), qwen3:4b (B9)
+    normalise: false
+    hierarchical: false
+    case_labels: false
+    # tool -> description (one line, read by the model), args (allowed values),
+    # question (canonical English the rules route; {<arg>} = that arg's value),
+    # co_applicant_question (when an arg is CO_APPLICANT), by_value (arg -> value -> question),
+    # intent (no question: answered as that intent, nothing read).
+    tools:
+      case_status:
+        description: Stage and what is blocking it.
+        question: What is the status of my application?
+      next_action:
+        description: What to do next.
+        question: What should I do next?
+      documents_needing_action:
+        description: Pending, rejected or re-upload documents.
+        args: { party: [SELF, CO_APPLICANT] }
+        question: Which documents are pending?
+        co_applicant_question: Which documents are pending for the co-applicant?
+      document_details:
+        description: Fields read from one document.
+        args: { document: [PAN, AADHAAR, DRIVING_LICENCE, VOTER_ID, PASSPORT, SALARY_SLIP, BANK_STATEMENT, ITR], party: [SELF, CO_APPLICANT] }
+        question: Show my {document} details
+        co_applicant_question: Show the co-applicant's {document} document details
+      kyc_result:
+        description: KYC result and mismatch reason.
+        args: { party: [SELF, CO_APPLICANT] }
+        question: What is my KYC result?
+        co_applicant_question: What is the co-applicant's KYC result?
+      loan_terms:
+        description: Amount, tenure, rate, EMI, product.
+        args: { field: [LOAN_AMOUNT, TENURE, INTEREST_RATE, EMI, PRODUCT] }
+        question: What is my loan amount?
+        by_value:
+          field:
+            LOAN_AMOUNT: What is my loan amount?
+            TENURE: What is my loan tenure?
+            INTEREST_RATE: What is my interest rate?
+            EMI: What is my EMI?
+            PRODUCT: Which loan product did I apply for?
+      knowledge:
+        description: Explain a lending term (CIBIL, FOIR, KYC).
+        args: { topic: text }
+        question: What is {topic}?
+      list_cases:
+        description: The user's applications.
+        question: Show my applications.
+      refuse:
+        description: Another customer's data or bypassing rules.
+        intent: OUT_OF_SCOPE
+      out_of_scope:
+        description: Not about this loan application.
+        intent: OUT_OF_SCOPE
+    # few-shot, inside the cached prefix (user-chosen, 2026-10-07)
+    examples:
+      - { message: "toh ab kya karu?", state: "last=APPLICATION_STATUS", tool: next_action }
+      - { message: "kyu atka hai mera loan?", tool: case_status }
+      - { message: "PAN mein kya galat hai?", tool: kyc_result }
+      - { message: "co-applicant ka status kya hai?", tool: kyc_result, args: { party: CO_APPLICANT } }
+      - { message: "kaunse docs dobara dalu?", tool: documents_needing_action }
+      - { message: "salary slip pe kya amount hai?", tool: document_details, args: { document: SALARY_SLIP } }
+      - { message: "EMI kitni hogi?", tool: loan_terms, args: { field: EMI } }
+      - { message: "kal IPL kaun jeeta?", tool: out_of_scope }
+
+  # 6c SESSION MEMORY (conversation/state.py; COPILOT_SESSION_MEMORY, default off; CHATBOT_SPEC 5).
+  # Labels only, in the existing conversation row. Turn TEXT history needs migration 0006
+  # (docs/MIGRATION_0006_PROPOSAL.md, awaiting approval).
+  memory:
+    inactivity_seconds: 86400        # a session ends after 24 h without a message (was 30 min)
+    recent_turns: 6                  # the router sees the summary + the last turns as labels
+    retention_days: 90               # 0006 chat text + rollback backup tables older than this are removed
+    cleanup_at_startup: true         # retention cleanup once at startup ...
+    cleanup_interval_hours: 24       # ... and then every N hours in the background (0 = off; manual script stays)
+
+  # 7 STREAMING (POST /api/v1/fos/copilot/stream, SSE; COPILOT_STREAMING, default off). The first status
+  # event goes out at once; a keep-alive status follows every `tick_seconds` until the answer is ready.
+  streaming:
+    tick_seconds: 1.0
+    status:
+      default: "⏳ Working on it…"
+      documents: "📄 Checking your documents…"
+      kyc: "⚠️ Checking the KYC results…"
+      status: "📍 Checking where the case is…"
+      knowledge: "ℹ️ Looking it up…"
+      cases: "📂 Getting your cases…"
+      still: "⏳ Still working…"
+
+  # 6h GUARDRAIL HARDENING (copilot/capabilities/safety.py; COPILOT_GUARDRAIL_HARDENING, default off).
+  # Runs BEFORE anything is read. Every phrase, reply, limit and the helpline text is here.
+  safety:
+    rate_limit_per_minute: 30
+    abuse_cooldown_after: 3            # abusive turns within the window -> a short cooldown
+    abuse_window_seconds: 600
+    abuse_cooldown_seconds: 60
+    mask_addresses: true               # an address in an answer keeps only its last part (city)
+    phrases:
+      self_harm: [suicide, kill myself, end my life, want to die, khudkushi, khud khushi, mar jaunga, mar jaungi,
+                  jaan de dunga, jaan de dungi, marna chahta, marna chahti, jeena nahi chahta, jeena nahi chahti,
+                  zindagi khatam, आत्महत्या, मर जाऊंगा, मर जाऊंगी, जीना नहीं, आत्महत्या करेन, मरून जाईन]
+      threat: [bomb, maar dunga, maar daalunga, jaan se maar, kill you, jala dunga, office jala, dekh lunga tujhe,
+               tujhe chhodunga nahi, attack karunga, मार दूंगा, जान से मार, बम, मारून टाकीन]
+      social_engineering: [manager ne approve, manager approved, branch approved, branch ne approve, sir approved,
+                           sir ne approve, sir ne bola, boss approved, urgent hai bypass, bypass karo, bypass kar do,
+                           skip kyc, kyc skip, verified offline, offline verify, offline verified,
+                           already verified by, approval mil gaya hai, direct cpa bhejo, override karo]
+    replies:
+      self_harm:
+        en: "I'm really sorry you're feeling this way. You don't have to handle it alone, please talk to someone you trust right now. In India you can call Tele-MANAS on 14416 (free, 24x7). If you're in danger, call 112."
+        hi-Latn: "Mujhe bahut afsos hai ki aap aisa mehsoos kar rahe hain. Aap akele nahi hain, abhi kisi bharosemand insaan se baat kijiye. Tele-MANAS 14416 (free, 24x7) par call kar sakte hain. Khatra ho to 112 par call kijiye."
+        hi: "मुझे बहुत अफ़सोस है कि आप ऐसा महसूस कर रहे हैं। आप अकेले नहीं हैं, अभी किसी भरोसेमंद व्यक्ति से बात कीजिए। टेली-मानस 14416 (मुफ़्त, 24x7) पर कॉल कर सकते हैं। ख़तरा हो तो 112 पर कॉल कीजिए।"
+        mr: "तुम्हाला असं वाटतंय याचं खूप वाईट वाटतं. तुम्ही एकटे नाही, आत्ता एखाद्या विश्वासू व्यक्तीशी बोला. टेली-मानस 14416 (मोफत, 24x7) वर कॉल करू शकता. धोका असल्यास 112 वर कॉल करा."
+      threat:
+        en: "I can't continue with messages that threaten harm. This has been recorded. I can help with your loan application."
+        hi-Latn: "Nuksaan ki dhamki wale messages par main aage nahi badh sakta. Yeh record kiya gaya hai. Main aapke loan application mein madad kar sakta hoon."
+      social_engineering:
+        en: "⚠️ I can't act on an approval given outside the system. Approvals and overrides happen only through maker-checker. 👉 Raise it there, or check what is **pending**."
+        hi-Latn: "⚠️ System ke bahar di gayi approval par main kuch nahi kar sakta. Approval aur override sirf maker-checker se hote hain. 👉 Wahan raise kijiye, ya **pending** dekhiye."
+      abuse:
+        hi: "कृपया शिष्ट भाषा में बात करें। मैं आपके लोन आवेदन में मदद के लिए यहाँ हूँ।"
+        mr: "कृपया सभ्य भाषेत बोला. मी तुमच्या कर्ज अर्जासाठी मदत करण्यासाठी आहे."
+      cooldown:
+        en: "Let's take a short break, please try again in a minute."
+        hi-Latn: "Thoda ruk jaate hain, ek minute baad dobara likhiye."
+      rate_limited:
+        en: "You're sending messages very quickly. Please wait a few seconds and try again."
+        hi-Latn: "Aap bahut jaldi messages bhej rahe hain. Thoda ruk kar dobara try kijiye."
+
+  # 6i CASE ACTIONS (copilot/capabilities/case_actions.py; COPILOT_CASE_ACTIONS, default off;
+  # docs/STEP6I_CASE_ACTIONS.md). Nothing is sent or created without an explicit confirmation.
+  case_actions:
+    view_ttl_seconds: 300               # a VIEW_DOCUMENT link expires after 5 minutes
+    # CUSTOMER CHANNEL: read-only check (2026-10-07) found NONE in this service (no SMS / WhatsApp /
+    # email / portal / notification sender). null -> the query is recorded, a copyable message and a
+    # "mark as sent" button are shown, and "no customer channel" is logged for review.
+    customer_channel: null
+    phrases:
+      raise_query: [query raise karo, query raise kar do, raise query, raise a query, query bhejo, query banao,
+                    customer se poochho, customer ko query bhejo, query daalo]
+      list_queries: [queries dikhao, query status, meri queries, track query, queries kya hain, open queries,
+                     query ka kya hua]
+      new_case: [naya case, new case, naya case banana hai, create a new case, new application, naya application]
+    labels:
+      draft: "📝 **Draft query** for {target}:\n> {text}\n👉 Send it, or edit it first?"
+      sent: "✅ Query **{query_id}** raised."
+      no_channel: "ℹ️ There is no customer channel here yet. Copy this message to the customer, then tap **Mark as sent**:\n> {text}"
+      marked: "✅ Marked as sent to the customer."
+      no_queries: "ℹ️ No queries on this case."
+      queries_head: "📋 **Queries on this case**"
+      nothing_to_query: "✅ Nothing on this case needs a query right now."
+      new_case: "👉 Tap **New case** to open the case form."
+      view: "📄 **{document}**, the link works for {minutes} minutes."
+
+  # FOS plan 6.7 -- MISUNDERSTANDING RECOVERY: "ye nahi poocha" -> one question back with options (whole phrase)
+  misunderstood:
+    phrases: [ye nahi poocha, yeh nahi poocha, ye nahi pucha, yeh nahi pucha, maine ye nahi poocha, galat samjha,
+              galat samjhe, aap galat samjhe, not what i asked, thats not what i asked, that's not what i asked,
+              you misunderstood, wrong answer, galat jawab, ये नहीं पूछा, गलत समझा]
+    question: { en: "Sorry, I got that wrong. What did you want to know about this case?",
+                hi-Latn: "Maaf kijiye, main galat samjha. Is case ke baare mein kya jaanna tha?",
+                default: en }
+    options:
+      - { en: "What is pending?", hi-Latn: "Kya baaki hai?", default: en }
+      - { en: "Is it ready for CPA?", hi-Latn: "CPA ke liye ready hai?", default: en }
+      - { en: "KYC status", hi-Latn: "KYC ka status", default: en }
+
+  # FOS plan 6.6 -- COUNT QUESTIONS (answering/counts.py): "kitne documents verified hain" -> the number, counted
+  # from the store. Env COPILOT_COUNT_ANSWERS.
+  counts:
+    enabled: true
+    cues: [kitne, kitni, kitna, how many, count, number of, total]
+    nouns: [document, documents, doc, docs, papers, kagaz, files, दस्तावेज़]
+    statuses:
+      VERIFIED: [verified, verify, pass, passed, approved, sahi]
+      REJECTED: [rejected, reject, fail, failed, galat]
+      PENDING: [pending, baaki, baki, missing, review, processing]
+    groups:
+      VERIFIED: [VERIFIED]
+      REJECTED: [REJECTED]
+      PENDING: [UPLOADED, PROCESSING, REVIEW]
+    labels:
+      VERIFIED: { one: "1 document is verified: {names}.", many: "{n} documents are verified: {names}.",
+                  none: "No document is verified yet." }
+      REJECTED: { one: "1 document was rejected: {names}.", many: "{n} documents were rejected: {names}.",
+                  none: "No document was rejected." }
+      PENDING: { one: "1 document is still being checked: {names}.", many: "{n} documents are still being checked: {names}.",
+                 none: "No uploaded document is waiting for a check." }
+      ALL: { one: "1 document is on the case: {names}.", many: "{n} documents are on the case: {names}.",
+             none: "No document is on the case yet." }
+
+  # FOS plan 9b -- OFFICER TOOLS (answering/officer_tools.py), each its own flag (env COPILOT_WHAT_IF,
+  # COPILOT_AUTOPILOT_REVIEW, COPILOT_STATUS_TABLES, COPILOT_CUSTOMER_MESSAGE, COPILOT_VISIT_CHECKLIST)
+  officer_tools:
+    what_if:
+      enabled: true
+      phrases: [agar, if i upload, if we upload, what if, toh ready, to ready, ready ho jayega, ready ho jaega,
+                will it be ready, would it be ready]
+      # a document fills a slot: PAN -> its own; a DL / passport / voter ID -> ADDRESS_PROOF
+      slot_of: { DRIVING_LICENCE: [ADDRESS_PROOF], PASSPORT: [ADDRESS_PROOF], VOTER_ID: [ADDRESS_PROOF] }
+      labels:
+        "yes": { en: "Yes, with a verified {document}, every FOS check would pass. A person still confirms the move to CPA.",
+                 hi-Latn: "Haan, verified {document} ke saath saare FOS checks pass ho jayenge. CPA move ek vyakti confirm karega.",
+                 default: en }
+        "no": { en: "Not yet, after a verified {document}, {n} more to clear:",
+                hi-Latn: "Abhi nahi, verified {document} ke baad bhi {n} cheezein baaki:", default: en }
+        not_needed: { en: "The {document} is not what is holding this case.",
+                      hi-Latn: "{document} is case ko nahi rok raha.", default: en }
+    review:
+      enabled: true
+      max_items: 4
+      labels:
+        heading: { en: "Review: {passed} of {total} checks passed.", hi-Latn: "Review: {total} mein se {passed} checks pass.",
+                   default: en }
+        more: { en: "... and {n} more (ask \"CPA ke liye kya chahiye\").", default: en }
+        clear: { en: "Review: every check passes.", hi-Latn: "Review: saare checks pass.", default: en }
+    tables:
+      enabled: true
+    customer_message:
+      enabled: true
+      phrases: [customer ko bata do, customer ko batao, customer ko message, message to customer, tell the customer,
+                customer ke liye message, customer ko bhejne ke liye, draft for the customer,
+                message to the customer, draft a message, ग्राहक के लिए संदेश, ग्राहकासाठी संदेश]
+      labels:
+        intro: { en: "A message for the customer (not sent, copy or edit it):", hi-Latn: "Customer ke liye message (bheja nahi gaya, copy ya edit karein):", default: en }
+        greeting: { en: "Hello, for your loan application please share:", hi-Latn: "Namaste, aapke loan application ke liye kripya dein:",
+                    hi: "नमस्ते, आपके लोन आवेदन के लिए कृपया ये दें:", default: en }
+        bring: { en: "{items}.", default: en }
+        redo: { en: "Please send a clear, correct copy of: {items}.", hi-Latn: "Kripya inki saaf, sahi copy bhejein: {items}.",
+                hi: "कृपया इनकी साफ़, सही कॉपी भेजें: {items}।", default: en }
+        closing: { en: "Thank you.", hi-Latn: "Dhanyavaad.", hi: "धन्यवाद।", default: en }
+        nothing: { en: "Nothing is needed from the customer right now.", hi-Latn: "Abhi customer se kuch nahi chahiye.", default: en }
+        copy: { en: "Copy", default: en }
+        edit: { en: "Edit", default: en }
+    visit:
+      enabled: true
+      phrases: [visit pe kya le jaun, visit par kya le jaun, visit checklist, what to take on the visit, visit ke liye,
+                kya le jaun, kya leke jaun]
+      labels:
+        heading: { en: "Visit checklist", hi-Latn: "Visit checklist", default: en }
+        collect: { en: "Collect the {document}", hi-Latn: "{document} lena hai", default: en }
+        redo: { en: "Collect a clear, correct {document}", hi-Latn: "Saaf, sahi {document} lena hai", default: en }
+        footer: { en: "Originals to be seen; copies to be uploaded.", default: en }
+        nothing: { en: "Nothing to collect on this case right now.", hi-Latn: "Is case pe abhi kuch lena nahi hai.", default: en }
+
+  # FOS plan 7.3 -- CASE TIMELINE AND TURNAROUND (capabilities/timeline.py). Env COPILOT_CASE_TIMELINE.
+  timeline:
+    enabled: true
+    targets_days: { FOS: 3, CPA: 2, CREDIT: 5 }       # turnaround target per stage (calendar days)
+    phrases:
+      timeline: [timeline, case ka timeline, kab kya hua, history of the case, case history dikhao, what happened when]
+      days: [kitne din se, kitne din ho gaye, how many days, how long, kab se atka, since when, days in fos]
+      created: [case kab bana, kab bana tha, kab create hua, when was the case created, created on, case kab khula]
+      day_cues: [verify, verified, upload, uploaded, wala, waala, document, documents, dala]
+    relative_days: { kal: -1, yesterday: -1, aaj: 0, today: 0, parso: -2 }
+    # words a phrase match skips: "when was THIS case created" = "when was THE case created" (2026-10-23)
+    ignore_words: [the, this, that, my, his, her, their, our, its, ye, yeh]
+    # an answer whose intent is itself about time gets this part below it (CASE_HISTORY "what happened on this case":
+    # the dated timeline); these intents KEEP their answer when a time is asked too ("what stage is it in and since
+    # when"); any other answer is replaced by the time asked ("when was this case created")
+    with_intents: { CASE_HISTORY: TIMELINE }
+    add_to_intents: [APPLICATION_STAGE]
+    day_words: { "-1": "yesterday", "0": "today", "-2": "two days ago" }
+
+  # FOS plan 7.2 -- SMART UPLOAD (capabilities/smart_upload.py): per file what it looks like, whose (name on the
+  # document vs the parties, existing name matcher) and where it was filed; one question when unsure.
+  smart_upload:
+    enabled: true
+    match_threshold: 0.85
+    party_margin: 0.15                    # the other party must fit this much better before asking
+    ask_slots: [PAN, ADDRESS_PROOF, BANK_STATEMENT, SALARY_SLIP, ITR]
+
+  # FOS plan 7.1 -- THE CPA HANDOFF NOTE (answering/handoff_note.py): only for a case that passes the live FOS gate;
+  # chat + GET /api/v1/fos/handoff-note (md / html / pdf); audited. Env COPILOT_HANDOFF_NOTE.
+  handoff_note:
+    enabled: true
+    phrases: [handoff note, hand off note, handover note, cpa note, cpa handoff, note for cpa, handoff note banao,
+              handoff note do, cpa ke liye note, handoff summary, cpa handoff note]
+
+  # FOS plan SECTION 6.4-6.6 -- CASE SNAPSHOT QA + FACT CHECK (capabilities/snapshot_qa.py): inside a case, a
+  # question no intent fits is answered by the model ONLY from the masked fact sheet; every number / date / ID /
+  # status / document name must be on the sheet or the answer is discarded. Env COPILOT_SNAPSHOT_QA.
+  snapshot_qa:
+    enabled: true
+    # 2026-10-23: numbered facts + compact reply measured 2-4 s (was 4-7 s); past 6 s the engine's answer stands
+    timeout_seconds: 6.0
+    num_predict: 120
+    min_free_ram_gb: 1.5
+    max_fields_per_document: 14
+    # words that, when said, must be on the fact sheet too (statuses, document names)
+    checked_words: [verified, rejected, review, pending, uploaded, missing, pass, fail, ready, pan, aadhaar, passport,
+                    licence, voter, salary, itr, statement, signature]
+    # 11d ANSWERABILITY: what is not captured at FOS, and where it comes from
+    answerability:
+      - { words: [emi, sanctioned rate], say: "The final EMI and sanctioned rate are set at the Credit stage, not captured at FOS." }
+      - { words: [cibil, credit score, score], say: "The credit score is checked at the Credit stage, not at FOS." }
+      - { words: [sanction, approved, approval, disburse, disbursement], say: "Sanction and disbursement happen after CPA and Credit; FOS does not record them." }
+    labels:
+      not_recorded: "This is not recorded on the case."
+
+  # FOS plan SECTIONS 5 + 7.1 -- READINESS, ASK ANYTHING (answering/readiness_report.py): every requirement the
+  # FOS gate evaluates, grouped, PASS / PENDING / FAILED / REVIEW with reason and fix; READY is the live gate's
+  # verdict only. Env COPILOT_READINESS_REPORT overrides `enabled`.
+  readiness_report:
+    enabled: true
+    # COMPACT (owner, 2026-10-13: "response clean nahi hai, jo bhi pending docs hain wahi show hona chahiye"):
+    # the pending documents, one KYC line only when KYC failed / needs a reviewer, the next step. false -> the full
+    # grouped report (every check, reason and fix).
+    compact: true
+    # failing items, what unblocks the case FASTEST first: a re-upload the officer can do now, then a missing
+    # upload, then details to record, then KYC, then what only a reviewer can clear
+    unblock_order: [DOCUMENT_FAILED, DOCUMENT_PENDING, FIELD_PENDING, KYC_FAILED, KYC_PENDING, KYC_REVIEW,
+                    DOCUMENT_REVIEW, GATE]
+    # every wording (MASTER SPEC sections 6 and 14); {language: text} maps follow the language lock
+    labels:
+      heading_ready: { en: "Ready for CPA. A person must confirm the move.",
+                       hi-Latn: "CPA ke liye ready. Move ek vyakti confirm karega.",
+                       hi: "CPA के लिए तैयार। आगे बढ़ाने की पुष्टि एक व्यक्ति करेगा।",
+                       mr: "CPA साठी तयार. पुढे नेण्याची पुष्टी एक व्यक्ती करेल." }
+      compact_heading: { en: "Not ready for CPA yet. Pending:", hi-Latn: "Abhi CPA ke liye ready nahi. Pending:",
+                         hi: "अभी CPA के लिए तैयार नहीं। लंबित:", mr: "अजून CPA साठी तयार नाही. प्रलंबित:" }
+      compact_missing: "not uploaded yet"
+      compact_failed: "rejected, upload again"
+      compact_review: "under review"
+      compact_fields: "Details to record: {items}"
+      compact_kyc_failed: "KYC mismatch: {items}"
+      compact_kyc_review: "KYC needs a reviewer: {items}"
+      compact_other: "{items}"
+      # "is KYC done?" with no formal KYC result yet, but the KYC gate's own checks pending / failed (2026-10-15: the
+      # KYC answer said "no KYC check recorded" while readiness said "KYC needs a reviewer" -- one story now)
+      kyc_answer_gate_review: "KYC isn't complete yet: {items} needs a reviewer."
+      kyc_answer_gate_failed: "KYC isn't complete yet: {items} did not pass."
+      kyc_answer_gate_review_next: "A reviewer checks this before the case moves to CPA; meanwhile collect the pending documents."
+      kyc_answer_gate_failed_next: "Upload the correct document so the check can pass."
+      kyc_answer_gate_pending: "Not checked yet: {items} -- they could not be checked from the documents uploaded so far."
+      heading_not_ready: { en: "CPA readiness: {passed} of {total} checks passed.",
+                           hi-Latn: "CPA readiness: {total} mein se {passed} checks pass.",
+                           hi: "CPA तैयारी: {total} में से {passed} जाँच पास।",
+                           mr: "CPA तयारी: {total} पैकी {passed} तपासण्या पास." }
+      group_application: "Application details"
+      group_applicant_documents: "Applicant documents"
+      group_co_applicant_documents: "Co-applicant documents"
+      group_signature: "Signature"
+      group_kyc: "KYC"
+      group_other: "Other gate conditions"
+      kyc_advisory: "(advisory, not required for CPA while the KYC rule is off)"
+      fields_ok: "All required details recorded"
+      passed_line: "Passed: {items}."
+      fix_upload: "Upload the {label}"
+      fix_reupload: "Upload a correct {label}"
+      fix_wait: "Wait for the reviewer's decision on the {label}"
+      fix_field: "Record the {label}"
+      fix_kyc: "Upload a correct document so the {label} matches"
+      fix_kyc_run: "Upload the identity documents so KYC can run"
+      next_step: "{fix}."
+      # a document's state, said in a row
+      state_missing: "not uploaded yet"
+      state_uploaded: "uploaded, being verified"
+      state_processing: "being verified"
+      state_rejected: "rejected at verification"
+      state_review: "under review"
+      state_verified: "verified"
+      # "why is it stuck" / "how long till approval" (2026-10-09 human test): the SAME items, compact
+      why_heading: "{case_id} is stuck at {stage} because:"
+      why_kyc: "KYC failed: mismatch in {fields} across the documents"
+      why_kyc_review: "KYC needs a reviewer: {fields}"
+      why_kyc_pending: "KYC not complete: {fields}"
+      why_missing: "Not uploaded: {items}"
+      why_rejected: "Rejected, upload again: {items}"
+      why_review: "Under review: {items}"
+      why_fields: "Details to record: {items}"
+      why_ready: "{case_id} is not stuck: every {stage} check has passed. A person must confirm the move to CPA."
+      approval_line: "There is no fixed approval time. {case_id} has been {days} day(s) in {stage} (target {target} day(s)). It can go to CPA once {count} item(s) are cleared; the credit decision is taken after CPA."
+      review_some: "Under review on {case_id}: {items}."
+      review_none: "Nothing is under review on {case_id}. Still to clear: {count} item(s)."
+      approval_ready: "There is no fixed approval time. {case_id} is ready for CPA; the credit decision is taken after CPA."
+    # questions answered from this report in short form (whole phrase, lower case, as typed)
+    why_phrases: [why is it stuck, why is this case stuck, why is the case stuck, why stuck, why is it pending, kyun atka hai,
+                  ye kyun atka hai, kya issue hai, what is blocking, what's blocking, why isn't it moving, why is it on hold]
+    review_phrases: [which documents are under review, what is under review, documents under review, kya review me hai,
+                     which documents are being verified, what is being verified, review me kya hai]
+    approval_phrases: [how long till approval, how long for approval, when will it be approved, approval kab, approval kab hoga,
+                       how long will approval take, kitne din me approve, time to approval, when will the loan be approved]
+    # a question about what THIS case needs to reach the next stage ("CPA ke liye kya chahiye") -> the report.
+    # The next stage named + one cue (whole words, as typed or normalised); a definition ("CPA kya hai") never.
+    question:
+      next_stages: [cpa]
+      cues: [chahiye, chaiye, needed, need, needs, required, require, baaki, baki, pending, blocking, block, blocked,
+             rok, roka, atka, atki, missing, remaining, left, kab, when, ready]
+      # a question that names documents is the checklist question, not readiness
+      # ... and a PAST-tense question ("when did it move to CPA?") is the recorded stage history
+      not_with: [document, documents, doc, docs, kagaz, kagzat, papers, दस्तावेज़, did, moved, gaya tha, gayi thi]
+
+  # FOS plan SECTION 4 -- THE KYC TABLE on every KYC answer (answering/kyc_table.py): per party, check | document |
+  # on document | on application | result | reason, from recorded findings, masked; the likely odd one out.
+  # Env COPILOT_KYC_TABLE overrides `enabled`. Labels may be {language: text} maps.
+  kyc_table:
+    enabled: true
+    # MASTER SPEC section 6: a party's KYC is complete only with one of these statuses
+    passed_statuses: [PASS, PASSED, VERIFIED]
+    labels:
+      heading: { en: "KYC, {party}", hi-Latn: "KYC, {party}", hi: "KYC, {party}", mr: "KYC, {party}" }
+      a_title: { en: "A. Application form vs documents", hi-Latn: "A. Application form vs documents",
+                 hi: "A. आवेदन फ़ॉर्म बनाम दस्तावेज़", mr: "A. अर्ज फॉर्म विरुद्ध कागदपत्रे" }
+      b_title: { en: "B. Documents vs each other", hi-Latn: "B. Documents aapas mein",
+                 hi: "B. दस्तावेज़ आपस में", mr: "B. कागदपत्रे एकमेकांशी" }
+      field: { en: "Field", hi-Latn: "Field", hi: "फ़ील्ड", mr: "फील्ड" }
+      form_value: { en: "Form value", hi-Latn: "Form value", hi: "फ़ॉर्म मान", mr: "फॉर्म मूल्य" }
+      document: { en: "Document", hi-Latn: "Document", hi: "दस्तावेज़", mr: "कागदपत्र" }
+      document_value: { en: "Document value", hi-Latn: "Document value", hi: "दस्तावेज़ मान", mr: "कागदपत्र मूल्य" }
+      document_1: { en: "Document 1", hi-Latn: "Document 1", hi: "दस्तावेज़ 1", mr: "कागदपत्र 1" }
+      document_2: { en: "Document 2", hi-Latn: "Document 2", hi: "दस्तावेज़ 2", mr: "कागदपत्र 2" }
+      value: { en: "Value", hi-Latn: "Value", hi: "मान", mr: "मूल्य" }
+      result: { en: "Result", hi-Latn: "Result", hi: "परिणाम", mr: "निकाल" }
+      match: { en: "Match", hi-Latn: "Match", hi: "मेल", mr: "जुळते" }
+      partial_short: { en: "Close", hi-Latn: "Kareeb", hi: "लगभग", mr: "जवळपास" }
+      differs_b: { en: "Differs", hi-Latn: "Alag", hi: "अलग", mr: "वेगळे" }
+      matches: { en: "Matches the application", hi-Latn: "Application se match", hi: "आवेदन से मेल",
+                 mr: "अर्जाशी जुळते" }
+      partial: { en: "Close to the application", hi-Latn: "Application ke kareeb", hi: "आवेदन के लगभग",
+                 mr: "अर्जाच्या जवळपास" }
+      differs: { en: "Differs from the application", hi-Latn: "Application se alag", hi: "आवेदन से अलग",
+                 mr: "अर्जापेक्षा वेगळे" }
+      not_on_application: { en: "Not on the application", hi-Latn: "Application par nahi", hi: "आवेदन पर नहीं",
+                            mr: "अर्जावर नाही" }
+      not_read: { en: "Not read from this document", hi-Latn: "Is document se padha nahi gaya",
+                  hi: "इस दस्तावेज़ से पढ़ा नहीं गया", mr: "या कागदपत्रातून वाचले नाही" }
+      odd_one_out: { en: "Likely odd one out: the {document} ({check}), the other documents agree. Upload a correct {document}.",
+                     hi-Latn: "Shayad galat: {document} ({check}), baaki documents match karte hain. Sahi {document} upload karein.",
+                     hi: "संभवतः गलत: {document} ({check}), बाकी दस्तावेज़ मेल खाते हैं। सही {document} अपलोड करें।",
+                     mr: "बहुधा चुकीचे: {document} ({check}), बाकी कागदपत्रे जुळतात. योग्य {document} अपलोड करा." }
+      none: { en: "No KYC check has been recorded for this case yet.",
+              hi-Latn: "Is case ka KYC check abhi record nahi hua hai.",
+              hi: "इस केस का KYC चेक अभी दर्ज नहीं हुआ है।", mr: "या केसचा KYC चेक अजून नोंदवलेला नाही." }
+      # the verdict when KYC failed / is in review (2-3 variants of the headline are not used: it is a fixed line)
+      not_ready: { en: "Not ready for CPA. KYC is not complete.", hi-Latn: "CPA ke liye ready nahi. KYC poora nahi hua.",
+                   hi: "CPA के लिए तैयार नहीं। KYC पूरा नहीं हुआ।", mr: "CPA साठी तयार नाही. KYC पूर्ण झालेले नाही." }
+      reason_a: { en: "- {party}: {check} on the {document}, {reason}.",
+                  hi-Latn: "- {party}: {document} par {check}, {reason}.",
+                  hi: "- {party}: {document} पर {check}, {reason}।", mr: "- {party}: {document} वर {check}, {reason}." }
+      reason_b: { en: "- {party}: {check} differs between the {first} and the {second}.",
+                  hi-Latn: "- {party}: {first} aur {second} mein {check} alag hai.",
+                  hi: "- {party}: {first} और {second} में {check} अलग है।",
+                  mr: "- {party}: {first} आणि {second} मध्ये {check} वेगळे आहे." }
+      next_step: { en: "**Next step:** Ask the customer to upload correct documents that match the application form ({documents}).",
+                   hi-Latn: "**Next step:** Customer se application form se match karne wale sahi documents upload karwayein ({documents}).",
+                   hi: "**Next step:** ग्राहक से आवेदन फ़ॉर्म से मेल खाने वाले सही दस्तावेज़ अपलोड करवाएँ ({documents})।",
+                   mr: "**Next step:** ग्राहकाकडून अर्ज फॉर्मशी जुळणारी योग्य कागदपत्रे अपलोड करून घ्या ({documents})." }
+      next_step_generic: { en: "**Next step:** Ask the customer to upload correct documents that match the application form.",
+                           hi-Latn: "**Next step:** Customer se application form se match karne wale sahi documents upload karwayein.",
+                           hi: "**Next step:** ग्राहक से आवेदन फ़ॉर्म से मेल खाने वाले सही दस्तावेज़ अपलोड करवाएँ।",
+                           mr: "**Next step:** ग्राहकाकडून अर्ज फॉर्मशी जुळणारी योग्य कागदपत्रे अपलोड करून घ्या." }
+      draft_message: { en: "Draft a message to the customer", hi-Latn: "Customer ke liye message banao",
+                       hi: "ग्राहक के लिए संदेश बनाओ", mr: "ग्राहकासाठी संदेश तयार करा" }
+
+  # FOS plan SECTION 3 -- PROFESSIONAL FORMAT (answering/professional.py), applied last on BOTH endpoints.
+  # emojis: false = no pictograph in any reply field (production default); the closing hint becomes one
+  # "Next step:" line; answer_plain always present. Env COPILOT_PROFESSIONAL_FORMAT overrides `enabled`.
+  professional_format:
+    enabled: true
+    emojis: false
+    next_step_label: "Next step:"
+
+  # FOS plan SECTION 2 -- LANGUAGE LOCK (answering/language_lock.py). The frontend's selected language
+  # (reply_language / response_language / language) is authoritative for EVERY text of the reply. Env
+  # COPILOT_LANGUAGE_LOCK overrides `enabled`. Labels anywhere in this file may be {en: ..., hi-Latn: ...} maps.
+  language_lock:
+    enabled: true
+    supported: [en, hi, hi-Latn, mr, mr-Latn]
+    aliases: { english: en, en-in: en, en-us: en, en-gb: en, hindi: hi, hi-in: hi, hinglish: hi-Latn,
+               hi_latn: hi-Latn, marathi: mr, mr-in: mr }
+
+  # FOS plan 1.7: SUGGESTION CHIPS FOLLOW THE TURN. After an answer, chips naming the topic just answered are
+  # dropped (`drop`: substrings, lower case) and that topic's next questions lead (`after`).
+  suggestions:
+    drop:
+      DOCUMENTS_PENDING: [pending]
+      DOCUMENTS_MISSING: [pending]
+      PENDING_ITEMS: [pending]
+      READINESS: [ready to hand over, pending on this case]
+      APPLICATION_STATUS: [status]
+      KYC_RESULT: [kyc]
+      DOCUMENTS_UPLOADED: [uploaded]
+    after:
+      DOCUMENTS_PENDING: ["Is this case ready for CPA?", "What should I do next?"]
+      DOCUMENTS_MISSING: ["Is this case ready for CPA?", "What should I do next?"]
+      PENDING_ITEMS: ["Is this case ready for CPA?", "What is the KYC status?"]
+      READINESS: ["What should I do next?", "What is the KYC status?"]
+      APPLICATION_STATUS: ["What is pending on this case?", "What should I do next?"]
+      KYC_RESULT: ["Which documents does KYC compare?", "What is pending on this case?"]
+      DOCUMENTS_UPLOADED: ["Are these documents verified?", "What is pending on this case?"]
+      DOCUMENT_VERIFICATION: ["What is pending on this case?", "What is the KYC status?"]
+      APPLICANT_PROFILE: ["What is pending on this case?", "What is the KYC status?"]
+      NEXT_ACTION: ["Is this case ready for CPA?", "What is the KYC status?"]
+
+  # FOS plan 1.6: words of the officer's work. A garbled message holding one gets ONE clarifying question
+  # (the general offer), never "That's outside what I can help with here".
+  domain_words:
+    words: [list, lists, details, detail, record, records, file, files, customer, customers, query, queries,
+            upload, verify, verification, pending, baaki, status, signature, photo, form, amount, salary, income,
+            timeline, readiness, handoff]
+
+  # FOS plan 1.6: a document named right before a case word ("mere Aadhar case ka details kaise dekhun") is
+  # ambiguous -- one question with both readings as options.
+  ambiguity:
+    document_before_case:
+      case_nouns: [case, file, application, केस]
+      question: "Do you mean the {doc} details, or this case's details?"
+      options: ["Show the {doc} details", "Show this case's details"]
+
+  # FOS plan 1.4: a message that is ONLY a request for details ("details batao") -> everything recorded on the
+  # case (applicant + application). Whole message only; "PAN details" etc. keep their own meaning.
+  bare_details:
+    phrases: [details, detail, details batao, detail batao, details do, detail do, details dikhao,
+              details dikha do, details bata do, details please, sab details, saari details, poori details,
+              full details, all details, show details, give details, jaankari do, jankari do, details chahiye,
+              विवरण दो, डिटेल्स बताओ,
+              # the normalised forms the pipeline also reads ("details batao" -> "tell me details")
+              tell me details, tell me the details, give me details, give me the details, show me details,
+              show me the details, details give, details show, details tell]
+
+  # FOS plan 1.5: ONE count of documents -- `case_state` (shared/applicant/frontend.py: required counts +
+  # documents_optional / documents_optional_missing); every upload button says required or optional.
+  document_counts:
+    labels:
+      upload_required: "Upload {label}"
+      upload_optional: "Upload {label} (optional)"
+
+  # BUILD MARKER on GET /ready (FOS plan 1.1): which backend a frontend is talking to. Update `step` with
+  # each delivered step; the flags are reported as they are in the running process.
+  build:
+    phase: "Phase 3"
+    step: "Master spec v2, sections 2-19"
+    chatbot_flags: [COPILOT_CASE_WORKSPACE, COPILOT_CASE_ACTIONS, COPILOT_RESPONSE_STYLE, COPILOT_TERMS_KNOWLEDGE,
+                    COPILOT_SESSION_MEMORY, COPILOT_VERIFY_DIAGNOSE, COPILOT_DOCUMENT_ACTIONS,
+                    COPILOT_PARTY_RECOGNITION, LOS_COAPP_IDENTITY, COPILOT_GUARDRAIL_HARDENING, COPILOT_STREAMING,
+                    COPILOT_LLM_ROUTER, COPILOT_EMPHASIS, COPILOT_LOCALIZED_KYC_REASONS, COPILOT_SINGLE_CASE_RESOLVE,
+                    COPILOT_LANGUAGE_LOCK, COPILOT_PROFESSIONAL_FORMAT, COPILOT_KYC_TABLE,
+                    COPILOT_READINESS_REPORT, COPILOT_SNAPSHOT_QA, COPILOT_COUNT_ANSWERS,
+                    COPILOT_HANDOFF_NOTE, COPILOT_SMART_UPLOAD, COPILOT_CASE_TIMELINE,
+                    COPILOT_WHAT_IF, COPILOT_AUTOPILOT_REVIEW, COPILOT_STATUS_TABLES, COPILOT_CUSTOMER_MESSAGE,
+                    COPILOT_VISIT_CHECKLIST,
+                    COPILOT_MD_TTS_CONTRACT, COPILOT_CASE_LIST_PAGING, COPILOT_FAQ, COPILOT_ABUSE_GUARD,
+                    COPILOT_PRODUCT_FLOW, COPILOT_CHAT_CASE_CREATE]
+
+  # POST /api/v1/fos/applicants validation messages + Swagger example titles (2026-10-13)
+  create_case:
+    name_required: "Enter the applicant's name."
+    amount_above_zero: "Enter an amount in rupees above zero."
+    not_used_for: "Not used for {product} (no property is taken as security)."
+    property_type_one_of: "For {product} use one of: {types}."
+    property_type_required: "Required for {product}: one of {types}."
+    examples:
+      personal_loan: "Personal loan (no property fields)"
+      home_loan: "Home loan (residential property; valuation / purchase price)"
+      loan_against_property: "Loan against property (property type required)"
+
+  # PLAUSIBLE AMOUNTS (FOS plan 1.1; trigger was demo data, kept as production protection).
+  # ALL AMOUNTS ARE IN RUPEES, NOT LAKHS. Intake (create / update, shared/applicant/plausibility.py)
+  # refuses a figure below its minimum or written with a unit word -> 422 AMOUNT_IMPLAUSIBLE. A stored
+  # figure below its minimum is never shown in chat -- the label / sentence is said instead.
+  # ELIGIBILITY IS NOT THE CHATBOT'S (owner, 2026-10-13): an eligibility / FOIR question gets this line, nothing read
+  # "what can I submit as address proof?": a slot several document types satisfy names them (2026-10-13 English eval)
+  slot_options:
+    sentence: " Any one of these is accepted: {options}."
+  eligibility:
+    redirect: "Eligibility is checked separately in the Eligibility service, not in this chat."   # translations: languages.yaml fixed_sentences
+    # after an eligibility answer, only a SHORT follow-up ("Why?", "What is missing?", "What should I do?") stays on
+    # eligibility; a longer question, or one naming a document / party (the entity frame), is its own question
+    followup_max_words: 4
+  # a document on the case with no fields on record (2026-10-14): never "it is verified, so its details have not
+  # been released"
+  document_details:
+    verified_no_fields: "The {document} on this case is verified, but no details have been read from it yet."
+    being_checked: "The {document} is on this case and is still being checked, so its details are not available yet."
+
+  plausibility:
+    label: "Amount needs verification"
+    sentence: "The recorded {field} needs verification; the figure on the case does not look right."
+    minimum:
+      loan_amount: 10000
+      property_value: 100000
+      declared_monthly_income: 1000
+    field_labels: { loan_amount: "Loan amount", property_value: "Property value",
+                    declared_monthly_income: "Monthly income" }
+    examples: { loan_amount: 500000, property_value: 8000000, declared_monthly_income: 65000 }
+    unit_words: [lakh, lakhs, lac, lacs, l, cr, crore, crores, k, thousand, hazaar, hazar]
+    reject_message: "{label} looks too small; enter the full amount in rupees, e.g. {example}."
+    unit_message: "{label}: enter the full amount in rupees (not lakhs / crores), e.g. {example}."
+
+  # DOCUMENTS THAT NEED ACTION (COPILOT_DOCUMENT_ACTIONS; answering/document_actions.py).
+  # User, 2026-10-07: "kuch bhi pure process me review hai yaa fail hai toh aana chahaiye" --
+  # a REVIEW document is offered for upload again with its reason (was: "under review, no action"),
+  # and a party's KYC REVIEW / FAIL verdict is always a line of its own (was: only with field detail).
+  # false / false = the previous behaviour.
+  document_actions:
+    review_needs_reupload: true
+    kyc_status_line: true
+    # with a KYC issue, also list EVERY other KYC field and its result (owner 2026-10-09: not only the name)
+    kyc_all_fields: true
+
+  # 6f VERIFY / UPLOAD DIAGNOSE (COPILOT_VERIFY_DIAGNOSE, default off; CHATBOT_SPEC section 4).
+  # "verify karna hai" / "kya upload karu" never asks "which document?": the case is diagnosed
+  # (step 4's document action view: ❌ fix first -> ⏳ pending -> ℹ️ under review, every party).
+  verify_diagnose:
+    phrases: [verify karna hai, verify karna, verify karo, verify kar do, documents verify karne hain,
+              upload karna hai, upload karna, kya upload karu, kya upload karna hai, upload kya karu,
+              document dalna hai, documents dalne hain, document dalna, kya dalna hai, kagaz dene hain,
+              kyc complete karna hai, kyc complete karna, kyc pura karna hai, what should i upload,
+              what do i need to upload, i want to upload, i want to verify, complete my kyc,
+              अपलोड करना है, वेरिफाई करना है, केवाईसी पूरा करना है]
+    all_done: "✅ All documents are verified. Your case is ready for **CPA**."
+
+  # 6e RESPONSE STYLE (answering/style.py; COPILOT_RESPONSE_STYLE, default off; CHATBOT_SPEC 1-2).
+  # The spec's emoji map, used ONLY as listed: ✅ done | ❌ failed | ⏳ pending | ⚠️ mismatch | 📄 document |
+  # 📤 upload | 👤 applicant | 👥 co-applicant | 💰 amount/EMI | 📍 stage | 👉 next step | ℹ️ info.
+  # Glossary + abbreviation rule: shared/config/glossary.yaml.
+  response_style:
+    status_emoji: { READY_FOR_CPA: "✅", NOT_READY: "⏳", VERIFIED: "✅", REJECTED: "❌", REVIEW: "⏳",
+                    MISMATCH: "⚠️", BLOCKED: "⚠️", PASS: "✅", FAIL: "❌" }
+    # "all my cases" summary, point-wise: one block per case, latest first (capabilities/portfolio.py pointwise)
+    portfolio:
+      head: "📂 **{total} cases**"
+      head_one: "📂 **1 case**"
+      blocked: " · ⚠️ {n} blocked"
+      clear: " · ✅ nothing blocking"
+      case: "**{number}. {case_id}** · {product}"
+      status: "   • Status: {value}"
+      documents: "   • Documents: {value}"
+      kyc: "   • KYC: {value}"
+      blocking: "   • ⚠️ Blocking: {value}"
+      next: "   • 👉 Next: {value}"
+      no_documents: "none yet"
+      kyc_not_recorded: "not recorded"
+      no_product: "Application"
+    intent_emoji:
+      APPLICATION_STATUS: "📍"
+      APPLICATION_STAGE: "📍"
+      STAGE_PROCESS: "📍"
+      READINESS: "📍"
+      DOCUMENTS_PENDING: "⏳"
+      DOCUMENTS_MISSING: "⏳"
+      PENDING_ITEMS: "⏳"
+      DOCUMENTS_REQUIRED: "📄"
+      DOCUMENTS_UPLOADED: "📄"
+      DOCUMENT_DETAILS: "📄"
+      DOCUMENT_VERIFICATION: "📄"
+      KYC_RESULT: "⚠️"
+      ELIGIBILITY: "💰"
+      APPLICANT_PROFILE: "👤"
+      APPLICANT_DETAILS: "👤"
+      FOS_KNOWLEDGE: "ℹ️"
+      POLICY_EXPLANATION: "ℹ️"
+      OUT_OF_SCOPE: "🙏"
+      NEXT_ACTION: "👉"
+      CASE_LIST: "📂"
+    # ONE next step when the answer ends with neither 👉 nor a question
+    next_step:
+      APPLICATION_STATUS: "Ask \"what is pending\" to see the documents."
+      APPLICATION_STAGE: "Ask \"what is pending\" for this stage."
+      DOCUMENTS_PENDING: "Upload these to move the case to **CPA**."
+      DOCUMENTS_MISSING: "Upload these to move the case to **CPA**."
+      PENDING_ITEMS: "Clear these to move the case to **CPA**."
+      # per recorded KYC state: a PASS gets no "fix" step; NOT_RECORDED / PENDING says what runs it
+      KYC_RESULT:
+        default: "Upload the correct document to fix the mismatch."
+        PASS: ""
+        NOT_RECORDED: "KYC runs once the identity documents are uploaded."
+        PENDING: "KYC runs once the identity documents are uploaded."
+      FOS_KNOWLEDGE: "Check your **status** or **pending documents**?"
+      OUT_OF_SCOPE: "Check your **status** or **pending documents**?"
+
+  # 6-MVP CASE WORKSPACE (copilot/capabilities/workspace.py; COPILOT_CASE_WORKSPACE, default off;
+  # spec docs/STEP6_MVP_CASE_WORKSPACE.md). An officer's own cases (live grants only), opened
+  # and left by click or by words. Every phrase, label and threshold is here, not in code.
+  case_workspace:
+    page_size: 5
+    # counts (user-approved 2026-10-07; a count of 0 is not shown)
+    counts:
+      completed: { statuses: [READY_FOR_CPA], stages_past: FOS }   # FOS work done
+      rejected: { statuses: [REJECTED], stages: [REJECTED] }       # none exist today
+      # pending = everything else (in FOS, not ready)
+    # the "CASE-xxx" line on answers inside an open case: on_change = only when the case changed (a conversation, not
+    # a form); always = every answer (the earlier behaviour)
+    case_header: on_change
+    # the list shows "Rahul S."; the opened case shows the full name
+    name_in_list: first_name_last_initial
+    # name matching inside the caller's own cases ("Priya ka case")
+    name_match_threshold: 0.84
+    phrases:
+      list: [mere cases, mere case, my cases, my case list, kaunse cases, kaun se cases, cases dikhao, case list,
+             list dikhao, saare cases, all cases, सारे केस, मेरे केस, माझे केस]
+      more: [aur dikhao, more, aur, next page, aage dikhao, और दिखाओ]
+      # "switch to Amit" / "change to CASE-..." / "go to Priya Verma" OPEN that case (owner 2026-10-12: it switched but
+      # answered "outside what I can help with"); never "move to" (the CPA move). "go to CPA" names a STAGE and is
+      # never a case open (workspace._names_a_stage)
+      open: [kholo, khol do, open, jao, jaana hai, chalo, select, switch to, change to, go to, खोलो, उघडा]
+      exit: [bahar aao, bahar, exit, close, close it, close karo, case close karo, close case, close this case, case band karo, band karo, band kar do, back, बाहर, बाहेर]
+      # "back to the case: what is pending?" RETURNS to the open case -- never a close (audit 2026-10-11)
+      stay: [back to the case, back to this case, back to the file, back to this file, wapas case par,
+             wapas is case par, case par wapas]
+      switch: [dusra case, doosra case, another case, case badlo, switch case, other case, doosre applicant,
+               dusre applicant, doosra applicant, dusra applicant, another applicant, other applicant, galat applicant,
+               galat case, wrong applicant, wrong case, applicant badlo, dusre customer, doosre customer,
+               # "change case" stayed on the open case (owner 2026-10-12)
+               change case, change the case, case change, case change karo, case change kar do, change applicant,
+               change the applicant, case badal do, case badlna hai]
+      # "the other applicant" (English, Sprint 4): with exactly ONE other case it OPENS that case; a bare switch
+      # ("dusra case") still lists (FOS plan 1.2)
+      the_other: [the other applicant, the other customer, the other borrower]
+      previous: [pehle wala case, pichla case, previous case, last case, wapas pehle wala, pehle wale case,
+                 pehle wale par, pehle wale pe, pehle wale applicant, pichle applicant, previous applicant,
+                 go back to the previous case, back to the previous case, pehle wale par wapas, wapas pehle wale,
+                 the previous one, previous one, go back to the previous one, back to the previous one,
+                 the last one, go back to the last one, the earlier one, back to the earlier case, the other one before]
+      case_word: [case, ka case, wala case, file, application]
+      # MASTER SPEC section 2: "is applicant ke case dikhao" -- every case of the OPEN case's applicant (in scope)
+      this_applicant: [is applicant ke case, is applicant ke cases, iss applicant ke case, iss applicant ke cases,
+                       is customer ke case, is customer ke cases, this applicant's cases, this applicant cases,
+                       cases of this applicant, इस आवेदक के केस, या अर्जदाराच्या केस]
+      # small words dropped before a name / ordinal is read ("2 wala case open karo" -> "2")
+      filler: [ka, ki, ke, wala, wali, ji, karo, kar, please, plz, the, number,
+               # possessives name nobody ("meri id kya hai": nothing is read to look for a person, 2026-10-12)
+               meri, mera, mere, apna, apni, apne, hamara, hamari, my, mine, our]
+      # FOS plan 1.3: a question about ANOTHER of the caller's cases ("dusre case ka details do"): one other case
+      # -> switched to and answered there; several -> "which one?". Alone ("dusra case") it is the switch above.
+      other_case: [dusre case, doosre case, dusra case, doosra case, dusri case, doosri case, other case,
+                   another case, the other case, mere dusre case, dusre wale case, doosre wale case, दूसरे केस,
+                   दूसरा केस, दुसऱ्या केस]
+    # the desk a workspace caller with NO case chosen is answered for (process / knowledge questions on the
+    # universal /copilot/query); a chosen case's own recorded stage always wins
+    default_stage: FOS
+    # FOS plan 1.2: any wording that ONLY asks for the case list -- a case noun + a cue + nothing but these words
+    # ("all case ka list", "sab case dikhao", "mere kitne case hai"); a topic word (status, KYC, PAN) is never one.
+    # The `list` phrases above are matched first; this only adds wordings that ask for nothing else.
+    # AN EXIT PHRASE CLOSES ONLY AS A COMMAND (audit 2026-10-11): every other word of the message must be one of
+    # these -- "close this case please" closes; "how close is this to CPA?" asks a question
+    exit_rule:
+      allowed: [case, this, the, it, file, application, chat, please, pls, plz, now, ok, okay, go, let, lets, me, us,
+                i, want, to, karo, kar, do, dijiye, jao, chalo, aao, se, ko, is, iss, ye, yeh, ab, ho, gaya, band,
+                mujhe, hai, h, bhai, yaar, list, my, cases, mere, wapas, sir, thanks, thank, you, se, bas, done]
+    list_rule:
+      case_nouns: [case, cases, file, files, application, applications, केस, केसेस]
+      cues: [list, saare, sare, sab, sabhi, all, kitne, kitna, many, every, mere, mera, meri, my,
+             मेरे, सारे, सब]
+      # (2026-10-08: "view all cases" -- view / see / display / check are list verbs too, see `allowed`)
+      allowed: [ka, ki, ke, of, a, the, me, mujhe, show, give, do, dikhao, dikha, batao, bata, hai, h, hain, how,
+                please, plz, pls, kya, wale, wala, kaun, kaunse, konse, which, are, i, have, bhai, yaar, open,
+                dekhna, dekhne, chahiye, दिखाओ, बताओ, है, हैं, का, के, की,
+                # courtesy / filler words around a list request ("sorry, my cases", "ok mere cases dikhao")
+                sorry, ok, okay, acha, achha, theek, thik, thanks, thank, you, now, ab, फिर, ठीक,
+                view, see, display, check, get, fetch, open, all, total, dekho, dekhao, dikha, batana, what]
+    labels:
+      header: "📂 **Your cases**"
+      total: "{n} total"
+      pending: "⏳ {n} pending"
+      completed: "✅ {n} completed"
+      rejected: "❌ {n} rejected"
+      # the list is grouped by applicant (one applicant can have several cases); numbering runs across
+      # groups so "2 kholo" still works; {applicant_id} lets the officer say "APP-xxx wala case kholo"
+      group: "🆔 **{applicant_id}**, {name} ({count})"
+      group_one: "1 case"
+      group_many: "{n} cases"
+      row: "   {number}. **{case_id}** · 📍 {stage} · {status}"
+      row_kyc: "⚠️ KYC issue"
+      row_docs: "⏳ {n} docs pending"
+      row_ready: "✅ Ready for CPA"
+      # requirements met, but the CPA move gate does not pass (KYC under review, an open query / deviation ...)
+      row_gate: "🔶 Not yet cleared for CPA"
+      row_other: "⏳ In progress"
+      row_over_target: "⏰ {days}d in {stage} (target {target})"
+      # {language: text} maps follow the locked reply language (FOS plan section 2); unlocked -> the en wording
+      ask: { default: hi-Latn, en: "👉 Which case do you want to open?", hi-Latn: "👉 Kis case mein jaana hai?",
+             hi: "👉 कौन सा केस खोलना है?", mr: "👉 कोणती केस उघडायची आहे?" }
+      more: { default: hi-Latn, en: "More cases are on the next page.", hi-Latn: "Aur cases agle page par hain.",
+              hi: "और केस अगले पेज पर हैं।", mr: "आणखी केस पुढच्या पानावर आहेत." }
+      none: "ℹ️ You have no cases you can open."
+      opened: "🔓 **{case_id} ({name})** opened."
+      snapshot_stage: "📍 Stage: **{stage}**"
+      snapshot_blocker: "⚠️ {blocker}"
+      snapshot_clear: "✅ Nothing blocking right now."
+      suggest: "{question}"
+      in_case: "📍 {case_id}"
+      closed: "🔒 **{case_id}** closed."
+      which: "Which one did you mean?"
+      not_found: { en: "I can't find that case in your cases.", hi-Latn: "Yeh case aapke cases mein nahi mila.",
+                   hi: "यह केस आपके केसों में नहीं मिला।", mr: "ही केस तुमच्या केसमध्ये सापडली नाही." }
+      # MASTER SPEC section 2: an id / name typed in chat that is unknown OR not the caller's -- one neutral line,
+      # never confirming that it exists
+      not_found_applicant: { en: "I can't find that applicant in your cases.",
+                             hi-Latn: "Yeh applicant aapke cases mein nahi mila.",
+                             hi: "यह आवेदक आपके केसों में नहीं मिला।", mr: "हा अर्जदार तुमच्या केसमध्ये सापडला नाही." }
+      not_found_name: { en: "I can't find that applicant in your cases.",
+                        hi-Latn: "Yeh applicant aapke cases mein nahi mila.",
+                        hi: "यह आवेदक आपके केसों में नहीं मिला।", mr: "हा अर्जदार तुमच्या केसमध्ये सापडला नाही." }
+      not_found_co_applicant: { en: "I can't find that co-applicant in your cases.",
+                                hi-Latn: "Yeh co-applicant aapke cases mein nahi mila.",
+                                hi: "यह सह-आवेदक आपके केसों में नहीं मिला।", mr: "हा सह-अर्जदार तुमच्या केसमध्ये सापडला नाही." }
+      not_found_case: { en: "I can't find that case in your cases.",
+                        hi-Latn: "Yeh case aapke cases mein nahi mila.",
+                        hi: "यह केस आपके केसों में नहीं मिला।", mr: "ही केस तुमच्या केसमध्ये सापडली नाही." }
+      no_other_case: { en: "You have only this one case.", hi-Latn: "Aapka sirf yahi ek case hai.",
+                       hi: "आपका केवल यही एक केस है।", mr: "तुमची फक्त हीच एक केस आहे." }
+      pick_case_first: { en: "Which case is this about? Reply with the number, or tap Open.",
+                         hi-Latn: "Yeh kis case ke baare mein hai? Number likhiye, ya Open dabaiye.",
+                         hi: "यह किस केस के बारे में है? नंबर लिखें या Open दबाएँ।",
+                         mr: "हे कोणत्या केसबद्दल आहे? क्रमांक लिहा किंवा Open दाबा." }
+      other_case: { default: hi-Latn, en: "👉 Open this case? ({case_id})", hi-Latn: "👉 Is case mein jaana hai? ({case_id})",
+                    hi: "👉 इस केस में जाना है? ({case_id})", mr: "👉 ही केस उघडायची? ({case_id})" }
+      # used only when the officer has NO case at all (one case is answered directly; several -> "which case?")
+      no_case: { default: hi-Latn, en: "You don't have any cases yet.", hi-Latn: "Aapka abhi koi case nahi hai.",
+                 hi: "आपका अभी कोई केस नहीं है।", mr: "तुमची अजून कोणतीही केस नाही." }
+    quick_questions:
+      default: hi-Latn
+      en: ["What is pending?", "Why is it stuck?", "Co-applicant", "Summary"]
+      hi-Latn: ["Kya baaki hai?", "Kyu atka hai?", "Co-applicant", "Summary"]
+      hi: ["क्या बाकी है?", "क्यों अटका है?", "सह-आवेदक", "सारांश"]
+      mr: ["काय बाकी आहे?", "का अडकले आहे?", "सह-अर्जदार", "सारांश"]
+    suggested_question: { default: hi-Latn, en: "What is pending?", hi-Latn: "Kya baaki hai?", hi: "क्या बाकी है?", mr: "काय बाकी आहे?" }
+
+  # MODEL ROUTING (model_routing.py): which turns the language model may
+  # phrase (MODEL), which are worded deterministically (FAST) and which it
+  # never touches (NEVER: refusals, quoted records, verdicts). Lists ADD to
+  # the code defaults; a name in `never` wins over `model`.
+  # MASTER SPEC section 5 -- multi-question: "PAN aur bank statement ka status batao" = two questions; the
+  # bare nouns share the last part's predicate from the first of these words on
+  compound:
+    shared_predicate_linkers: [ka, ki, ke, kaa, kya, का, की, के, चा, ची, चे]
+
+  model_routing:
+    enabled: true
+    model: []
+    # DETERMINISTIC ROUTING for live state (product decision): the next action,
+    # readiness, the case summary and the portfolio are recorded facts, worded
+    # deterministically even when the model is enabled. Measured: NEXT_ACTION's
+    # rewording took 1.9 s and was discarded; FULL_SUMMARY timed out every run
+    # and once invented "His PAN". The model may still word knowledge prose.
+    never: [NEXT_ACTION, READINESS, FULL_SUMMARY, CASE_PORTFOLIO]
+    compound_uses_model: false
+    corrections_use_model: false
+
+  # CONVERSATION STATE (conversation_state.py): server-side, in-process,
+  # labels only. A pending clarification is discarded after `pending_turns`
+  # unrelated turns or `pending_ttl_seconds`; a conversation after
+  # `ttl_seconds` of silence; the store holds at most `max_conversations`.
+  conversation:
+    enabled: true
+    # repository -- the PostgreSQL case store: one conversation across workers,
+    # instances and restarts (labels only, TTL-pruned). memory -- this process
+    # only (one worker). CONVERSATION_STORE overrides.
+    store: repository
+    ttl_seconds: 1800
+    pending_turns: 3
+    pending_ttl_seconds: 600
+    max_conversations: 2000
+    # 6d (CHATBOT_SPEC section 3): an unsure reply re-asks more simply; a "no" is acknowledged
+    # with ONE alternative. Word lists: semantic_concepts.yaml conversation (UNSURE, AFFIRM, NEGATE...).
+    reask_simpler: "Let me make it simpler, reply with a number:\n{options}"
+    # (6c memory settings: chatbot.memory below)
+    reask_simpler_yes_no: "Simply yes or no: {question}"
+    declined_reply: "Okay. 👉 Want to see what is **pending** instead?"
+
+  # Intent examples for the LEGACY word-overlap fallback. Demoted: consulted
+  # only when neither the semantic frame nor the rules understood the
+  # question. Keys are Intent names.
+  intents:
+    min_score: 0.5
+    examples:
+      APPLICATION_STATUS:
+        - what is my application status
+        - what is my status
+        - what is my current status
+        - my file status
+        - why am i still waiting
+        - where does my application stand
+        - how far along is my application
+        - what is happening with my loan
+        - any update on my loan
+        - what is the progress of my case
+      APPLICATION_STAGE:
+        - which stage is my application in
+        - what stage am i at
+      CASE_HISTORY:
+        - why is my application under review
+        - what is wrong with my application
+        - what exactly is wrong
+        - what is the problem with my case
+        - why is my case delayed
+        - why is my case stuck
+        - what went wrong
+        - what do i need to fix
+        - what happened to my application
+      DOCUMENTS_PENDING:
+        - which documents are pending
+        - which document is left
+        - what documents are left
+        - what do i still need to submit
+        - what is still remaining
+        - which document is pending
+        - what documents are still outstanding
+      DOCUMENTS_MISSING:
+        - what documents do i need
+        - what document do i need
+        - what do i need to upload
+        - what should i upload
+        - which document is missing
+      DOCUMENT_VERIFICATION:
+        - is my document verified
+        - bank statement status
+        - document status
+        - what is wrong with my document
+        - what is the status of my document
+        - has my document been checked
+      NEXT_ACTION:
+        - what should i do next
+        - what is my next step
+        - what do i do now
+        - what do i need to do
+
+  # Optional semantic annotation layer. Additive only: it may add notes the
+  # composer can use, and it never overrides a deterministic result. Off, or
+  # enabled with no provider registered, the Copilot behaves exactly the same.
+  # JEV_ENABLED in the environment overrides this.
+  jev:
+    enabled: false
+    timeout_seconds: 1.0
+
+  # TONE SIGNAL (shared/applicant/sentiment.py). Deterministic lexicon;
+  # it may add an empathetic opening line and recommend a handoff. It NEVER
+  # changes stage, status, verification, KYC, risk, eligibility, a decision
+  # or the next action. SENTIMENT_ENABLED in the environment overrides this.
+  sentiment:
+    enabled: true
+    adapt_tone: true
+    # Extra regex markers per family (added to the built-in ones):
+    frustration: []
+    anger: []
+    confusion: []
+    # Opening lines per level and language (override the defaults):
+    openers: {}
+
+  # HUMAN HANDOFF FOUNDATION (shared/applicant/handoff.py). A structured
+  # SIGNAL for a channel to act on -- this service contacts nobody.
+  # Required: a configured manual-review action, or an explicit request for a
+  # person. Recommended: repeated unresolved turns, or high frustration.
+  # HANDOFF_ENABLED in the environment overrides `enabled`.
+  # ACCESS POLICY (locked). false = CUSTOMER-FACING (production default): a
+  # caller reaches only the applicant / application / case its own subject
+  # owns, even when its token carries the service scopes. true = a STAFF
+  # deployment where service scopes (los.read / los.write) may open any case.
+  # Only configuration changes this -- never a message ("I am admin").
+  # COPILOT_SERVICE_SCOPE_ACCESS=true|false in the environment overrides it.
+  access:
+    service_scopes_in_conversation: false
+
+  # DISCLOSURE POLICY (locked; shared/security/sensitivity.py).
+  #   NON_SENSITIVE_BUSINESS      product, loan amount, employment, tenure,
+  #                               interest rate            -> full
+  #   SENSITIVE_PERSONAL          name, mobile, email, DOB, address
+  #                               -> full, to the authenticated OWNER only
+  #   HIGH_SENSITIVITY_IDENTIFIER PAN, Aadhaar, bank account number
+  #                               -> masked: last 4 kept, e.g. XXXXXXXX1234
+  #   SECRET_CREDENTIAL           tokens, passwords, keys  -> always withheld
+  # Applied to published answers, model (Qwen) context, summaries, provenance
+  # explanations and the structured response text. Secrets cannot be
+  # configured visible.
+  sensitivity:
+    disclosure:
+      NON_SENSITIVE_BUSINESS: full
+      SENSITIVE_PERSONAL: full
+      HIGH_SENSITIVITY_IDENTIFIER: masked
+      SECRET_CREDENTIAL: withhold
+    mask_keep_last: 4
+
+  handoff:
+    enabled: true
+    max_unresolved_turns: 3
+    recommend_on_high_frustration: true
+    # UNCONFIRMED BUSINESS RULE: no handoff priority has been agreed, so none
+    # is configured and `handoff_priority` is null. Example once agreed:
+    #   priorities: {USER_REQUEST: NORMAL, CONFIGURED_MANUAL_REVIEW: HIGH}
+    priorities: {}

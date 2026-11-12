@@ -1,0 +1,249 @@
+# =====================================================================================================================
+# EVERY AGENT'S OWN POSTGRESQL DATABASE (2026-10-28, owner: "real pgadmin me postgres me … sab alag alag db … aage jaake
+# humko sirf real data connect connection env me").
+#
+# Each agent reaches its database through ONE environment variable (its DSN, in .env -- never in this file, never
+# logged). A laptop, a pgAdmin test server and production differ only in those variables. Nothing falls back silently:
+# an agent whose DSN is missing says so (demo mode may still use its local store, as before).
+#
+# scripts/setup_agent_databases.py creates the databases on a server (AGENT_DB_ADMIN_DSN, a user allowed to CREATE
+# DATABASE), applies every agent's versioned migrations, and with --seed-demo loads the demo rows (is_demo = true).
+# In production: --purge-demo removes every demo row; real rows (is_demo = false) are never touched.
+# =====================================================================================================================
+
+admin_dsn_env: AGENT_DB_ADMIN_DSN
+
+# ONE DATABASE FOR EVERY AGENT (owner 2026-11-02: "schemas alag alag hoga lekin db ek hi sabka under los_agentic"):
+# LOS_AGENTIC_DSN names it; each agent keeps its tables, migrations and functions in ITS OWN SCHEMA (below), so
+# pgAdmin shows los_agentic -> Schemas -> eligibility, docs_policy, bank_verification, ... An agent's own variable
+# (dsn_env) still overrides it: a database of its own with its tables in `public`, the layout before 2026-11-02
+# (scripts/move_agents_to_los_agentic.py copies such databases into the schemas).
+shared_dsn_env: LOS_AGENTIC_DSN
+shared_database: los_agentic
+
+databases:
+  eligibility:
+    schema: eligibility
+    dsn_env: ELIGIBILITY_DSN
+    legacy_dsn_env: DATABASE_URL          # the name the eligibility agent used before 2026-10-28 (read with a warning)
+    database: los_eligibility
+    title: "Eligibility"
+    loggers: [agents.eligibility, eligibility]
+  docs_policy:
+    schema: docs_policy
+    dsn_env: DOCS_POLICY_DSN
+    database: los_docs_policy
+    title: "Credit document policy (Document Desk)"
+    loggers: [agents.docs_policy, docs_policy]
+    # an evaluation of an LOS demo case (shared/store/demo_seed.py: every demo id starts DEMO-) is a demo row
+    demo_case_prefixes: ["DEMO-"]
+  bank_verification:
+    schema: bank_verification
+    dsn_env: BANK_VERIFICATION_DSN
+    database: los_bank_verification
+    title: "Bank verification"
+    loggers: [agents.bank_verification, bank_verification]
+  crime_verification:
+    schema: crime_verification
+    dsn_env: CRIME_VERIFICATION_DSN
+    database: los_crime_verification
+    title: "Crime record verification"
+    loggers: [agents.crime_verification, crime_verification]
+  legal_verification:
+    schema: legal_verification
+    dsn_env: LEGAL_VERIFICATION_DSN
+    database: los_legal_verification
+    title: "Legal collateral verification"
+    loggers: [agents.legal_verification, legal_verification]
+  chatbot:
+    schema: chatbot
+    dsn_env: CHATBOT_DSN
+    database: los_chatbot
+    title: "Chatbot (applicant copilot)"
+    loggers: [shared.applicant, shared.observability.turn_log]
+    demo_case_prefixes: ["DEMO-"]
+  # the audit trails of the agents without a database of their own (owner 2026-10-28: "sab audit los_audit DB me"):
+  # every line those agents append to their JSONL audit file is ALSO stored here, one clean table per source
+  # (shared/db/audit_store.py). The files stay as they are.
+  audit:
+    schema: audit
+    dsn_env: LOS_AUDIT_DSN
+    database: los_audit
+    title: "Audit trails (dedupe, customer history, risk, agent runs, issuer checks, field corrections)"
+    loggers: [agents.dedupe, dedupe, shared.fraud_risk, shared.runtime, shared.verification]
+    demo_case_prefixes: ["DEMO-"]
+    # which JSONL file feeds which table: the file's env variable (and its default path, as each agent has it)
+    sources:
+      dedupe_decisions: { env: DEDUPE_AUDIT_PATH, default: runtime/audit/dedupe_decisions.jsonl }
+      customer_history: { env: CUSTOMER_HISTORY_AUDIT_PATH, default: runtime/audit/customer_history.jsonl }
+      risk_decisions: { env: FRAUD_RISK_AUDIT_PATH, default: runtime/audit/risk_decisions.jsonl }
+      agent_runs: { env: AGENT_RUN_AUDIT_PATH, default: runtime/audit/agent_runs.jsonl }
+      issuer_verifications: { env: ISSUER_VERIFICATION_AUDIT_PATH, default: runtime/audit/issuer_verification.jsonl }
+  # ---- the five agents added 2026-11-02 (each its own schema in los_agentic; shared/db/sqla.py or shared/db/pg.py).
+  # Before, each read DATABASE_URL -- one name for five databases (and eligibility's legacy name): never again.
+  itr_verification:
+    schema: itr_verification
+    own_database_before: false          # added after los_agentic: no old database to copy
+    dsn_env: ITR_VERIFICATION_DSN
+    database: los_itr_verification
+    title: "ITR verification"
+    loggers: [agents.itr_verification]
+  fraud_screening:
+    schema: fraud_detection             # where the fraud tables and data live (as in the LOS)
+    own_database_before: false          # added after los_agentic: no old database to copy
+    dsn_env: FRAUD_SCREENING_DSN
+    database: los_fraud_screening
+    title: "Fraud screening (AML / PEP / rules)"
+    loggers: [agents.fraud_screening]
+  residence_office_verification:
+    schema: office_residence_verification
+    own_database_before: false          # added after los_agentic: no old database to copy
+    dsn_env: RESIDENCE_OFFICE_VERIFICATION_DSN
+    database: los_residence_office_verification
+    title: "Residence / office verification"
+    loggers: [agents.residence_office_verification]
+  property_valuation:
+    schema: property_valuation
+    own_database_before: false          # added after los_agentic: no old database to copy
+    dsn_env: PROPERTY_VALUATION_DSN
+    database: los_property_valuation
+    title: "Property valuation"
+    loggers: [agents.property_valuation]
+  collateral_verification:
+    schema: collateral_check
+    own_database_before: false          # added after los_agentic: no old database to copy
+    dsn_env: COLLATERAL_VERIFICATION_DSN
+    database: los_collateral_verification
+    title: "Collateral verification"
+    loggers: [agents.collateral_verification]
+
+# the connection pool of each agent database
+pool:
+  min_size: 0
+  max_size: 8
+  timeout_seconds: 10                 # a database that is down answers "unavailable" fast, never hangs a request
+  connect_timeout_seconds: 5
+
+# application logs in the agent's own database (table agent_logs). WARNING and above only: INFO stays on the console so
+# the table holds what someone must look at. Every message is masked (PAN, Aadhaar, account, phone, e-mail, tokens,
+# keys) and cut; a write never blocks or fails a request (a bounded queue, written in the background; full = dropped
+# and counted).
+logs:
+  enabled: true
+  level: WARNING
+  max_message_chars: 2000
+  max_traceback_chars: 6000
+  queue_size: 5000
+  batch_size: 200
+  flush_seconds: 2
+  retention_days: 90
+
+# =====================================================================================================================
+# THE RULES LIVE IN THE DATABASE (owner 2026-11-02: "rules db me config rahenge sabke"; SQL approved the same day).
+# Each rule set below is read from its agent's schema (shared/db/rule_store.py): rule_sets holds every version
+# ever loaded, rule_set_active the version in force, rule_set_changes who switched it, when and why (append-only).
+# The FILE is only where a version comes from: scripts/rules.py import / activate puts a new one in force, with the
+# person's name and the reason. Wording and demo data stay files.
+# =====================================================================================================================
+rules:
+  environment_env: ENVIRONMENT
+  environment_default: production        # unset -> production (fail closed, as authentication reads it)
+  production_environments: [production, prod]
+  # a newly activated version is in force everywhere within this many seconds -- no restart
+  cache_seconds: 60
+  # outside production only: a rule set with NO version in the database yet is loaded once from its file and put in
+  # force (said in the log). Production refuses instead: scripts/rules.py import --activate, by a named person.
+  import_missing_outside_production: true
+  # outside production only, and only with no database configured at all: the file is read directly (a laptop
+  # without PostgreSQL). Production without the database refuses.
+  file_without_database_outside_production: true
+  # file_sections: a set's DEPLOYMENT settings (where its database / folders are, timeouts, the local model, who may
+  # do what) -- always read from its file, never from the database: they differ per environment, and the database's
+  # own place cannot live in the database. Everything else in the set is a business rule, read from the database.
+  sets:
+    eligibility_policy:
+      agent: eligibility
+      title: "Eligibility policy"
+      file: agents/eligibility/conf/eligibility_config.yaml
+      file_env: ELIGIBILITY_CONFIG_PATH
+      validator: agents.eligibility.config:validate_rules
+      file_sections: [postgres, los, explanation]
+      status_key: status
+      confirmed: [CONFIRMED]
+      version_key: version
+    docs_policy:                          # one rule set PER FILE: docs_policy:<file name>
+      agent: docs_policy
+      title: "Credit document policy"
+      folder: agents/docs_policy/policies
+      folder_env: DOCS_CREDIT_POLICY_DIR
+      pattern: "*.credit.json"
+      validator: agents.docs_policy.config.policy_loader:validate_rules
+      status_key: status
+      confirmed: [APPROVED]
+      version_key: version
+    bank_verification_policy:
+      agent: bank_verification
+      title: "Bank verification policy"
+      file: agents/bank_verification/conf/bank_verification.yaml
+      file_sections: [storage, uploads, background, scans, server, security, ai_summary, los_cases]
+      status_key: status
+      confirmed: [CONFIRMED]
+      version_key: version
+    crime_verification_policy:
+      agent: crime_verification
+      title: "Crime record verification policy"
+      file: agents/crime_verification/conf/crime_verification.yaml
+      file_sections: [storage, access, ui, ai_summary, report]
+      status_key: status
+      confirmed: [CONFIRMED]
+      version_key: version
+    legal_verification_policy:
+      agent: legal_verification
+      title: "Legal verification policy"
+      file: agents/legal_verification/conf/legal_verification.yaml
+      file_sections: [storage, access, ui, ai_summary, report, user_names, los_nav]
+      status_key: status
+      confirmed: [CONFIRMED]
+      version_key: version
+    dedupe_policy:                        # dedupe has no schema of its own: its rules live with its audit trail
+      agent: audit
+      title: "Dedupe policy"
+      file: agents/dedupe/conf/dedupe_policy.yaml
+      file_env: DEDUPE_POLICY_PATH
+      validator: agents.dedupe.config:validate_rules
+      status_key: signed_off
+      confirmed: [true]
+      version_key: policy_version
+    customer_history_policy:              # dedupe's customer history check; its rules live with its audit trail too
+      agent: audit
+      title: "Customer history policy"
+      file: agents/dedupe/conf/customer_history_policy.yaml
+      file_env: CUSTOMER_HISTORY_POLICY_PATH
+      validator: agents.dedupe.history_policy:validate_rules
+      status_key: signed_off
+      confirmed: [true]
+      version_key: policy_version
+
+# =====================================================================================================================
+# EVERY AGENT'S API RESPONSES, IN ITS SCHEMA (owner 2026-11-02: "response bhi dalna h db me"; shared/db/
+# responses.py): table api_responses -- the route, status, caller, time and the JSON body (identifiers masked).
+# =====================================================================================================================
+responses:
+  enabled: true
+  # the decisions and changes (a GET only reads what is already stored)
+  methods: [POST, PUT, PATCH, DELETE]
+  # a larger body is recorded as a note, not stored
+  max_body_bytes: 1000000
+  # route prefix -> the agent schema that keeps its responses (the longest prefix wins)
+  routes:
+    /api/v1/eligibility: eligibility
+    /api/v1/credit/document-readiness: docs_policy
+    /api/v1/credit/dedupe: audit
+    /api/v1/bank-verification: bank_verification
+    /api/v1/credit/crime-verification: crime_verification
+    /api/v1/credit/legal-verification: legal_verification
+    /api/v1/credit/itr-verification: itr_verification
+    /api/v1/credit/collateral-verification: collateral_verification
+    /api/v1/credit/fraud-screening: fraud_screening
+    /api/v1/credit/property-valuation: property_valuation
+    /api/v1/credit/residence-office-verification: residence_office_verification

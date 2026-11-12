@@ -1,0 +1,185 @@
+/* INK & EMBER -- DESIGN.md. Loaded last. The page was a dark-only glass workspace; this re-points the same variables at the
+   Ink & Ember tokens for light AND dark (following the system), flattens glass / glow / gradients, and moves the underline
+   fields onto the boxed 44px input. Ink creates (primary button), ember marks (focus, current step), indigo informs,
+   status in its own pastel family. No component changes. */
+:root {
+  --bg: #f7f7f8; --bg-2: #f7f7f8;
+  --surface: #ffffff; --surface-solid: #ffffff; --surface-2: #fafafa; --raised: #f4f4f5; --raised-hover: #ebebed;
+  --line: #eaeaec; --line-2: #d4d4d8; --divider: #f0f0f1;
+  --ink: #18181b; --ink-2: #3f3f46; --muted: #71717a; --disabled: #a1a1aa;
+  --accent: #1E40AF; --accent-2: #1E40AF; --accent-soft: #DBEAFE; --accent-ink: #1E40AF; --accent-tint: #EFF6FF;
+  --link: #4f5ac7;
+  --ink-fill: #18181b; --ink-fill-hover: #27272a; --ink-fill-pressed: #09090b; --on-ink: #ffffff; --band: #18181b;
+  --grad: #18181b;
+  --ok: #177334; --ok-soft: #e7f4eb; --ok-line: #c5e6cf;
+  --warn: #92400E; --warn-soft: #F5E7DD; --warn-line: #f2dcae;
+  --bad: #b03535; --bad-soft: #fdecec; --bad-line: #f5c6c6;
+  --info: #4148a8; --info-soft: #eef0fc; --info-line: #cfd4f5;
+  --na: #71717a; --na-soft: #f4f4f5; --na-line: #eaeaec;
+  --shadow: none; --e-sm: 0 1px 3px rgba(24, 24, 27, .06); --e-lg: 0 12px 32px rgba(24, 24, 27, .16);
+  --scrim: rgba(24, 24, 27, .5);
+  --radius: 16px;
+  --font-display: "Space Grotesk", "Inter", -apple-system, "Segoe UI", sans-serif;
+  --font: "Lexend", "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c0c0d; --bg-2: #0c0c0d;
+    --surface: #141416; --surface-solid: #141416; --surface-2: #19191c; --raised: #1d1d20; --raised-hover: #26262a;
+    --line: #27272a; --line-2: #3f3f46; --divider: #1f1f22;
+    --ink: #fafafa; --ink-2: #d4d4d8; --muted: #a1a1aa; --disabled: #71717a;
+    --accent: #60A5FA; --accent-2: #60A5FA; --accent-soft: #172554; --accent-ink: #93C5FD; --accent-tint: #0F1D3A;
+    --link: #8b94e8;
+    --ink-fill: #fafafa; --ink-fill-hover: #ffffff; --ink-fill-pressed: #e4e4e7; --on-ink: #18181b; --band: #1d1d20;
+    --grad: #1d1d20;
+    --ok: #6fcb8d; --ok-soft: #102416; --ok-line: #1f4a2c;
+    --warn: #e8bc63; --warn-soft: #2a2010; --warn-line: #4a3a17;
+    --bad: #f09090; --bad-soft: #2e1818; --bad-line: #5a2a2a;
+    --info: #a3aaf0; --info-soft: #1d2040; --info-line: #2f3568;
+    --na: #a1a1aa; --na-soft: #1d1d20; --na-line: #27272a;
+    --e-sm: 0 1px 3px rgba(0, 0, 0, .5); --e-lg: 0 12px 32px rgba(0, 0, 0, .65);
+    --scrim: rgba(0, 0, 0, .7);
+    color-scheme: dark;
+  }
+}
+/* an explicit choice still wins in both directions */
+:root[data-theme="dark"] {
+  --bg: #0c0c0d; --bg-2: #0c0c0d;
+  --surface: #141416; --surface-solid: #141416; --surface-2: #19191c; --raised: #1d1d20; --raised-hover: #26262a;
+  --line: #27272a; --line-2: #3f3f46; --divider: #1f1f22;
+  --ink: #fafafa; --ink-2: #d4d4d8; --muted: #a1a1aa; --disabled: #71717a;
+  --accent: #60A5FA; --accent-2: #60A5FA; --accent-soft: #172554; --accent-ink: #93C5FD; --accent-tint: #0F1D3A;
+  --link: #8b94e8;
+  --ink-fill: #fafafa; --ink-fill-hover: #ffffff; --ink-fill-pressed: #e4e4e7; --on-ink: #18181b; --band: #1d1d20;
+  --grad: #1d1d20;
+  --ok: #6fcb8d; --ok-soft: #102416; --ok-line: #1f4a2c;
+  --warn: #e8bc63; --warn-soft: #2a2010; --warn-line: #4a3a17;
+  --bad: #f09090; --bad-soft: #2e1818; --bad-line: #5a2a2a;
+  --info: #a3aaf0; --info-soft: #1d2040; --info-line: #2f3568;
+  --na: #a1a1aa; --na-soft: #1d1d20; --na-line: #27272a;
+  --e-sm: 0 1px 3px rgba(0, 0, 0, .5); --e-lg: 0 12px 32px rgba(0, 0, 0, .65);
+  --scrim: rgba(0, 0, 0, .7);
+  color-scheme: dark;
+}
+:root[data-theme="light"] { color-scheme: light; }
+
+/* ---- base */
+body { background: var(--bg); font: 15px/22px var(--font); letter-spacing: -.006em; }
+::selection { background: var(--accent-soft); color: var(--ink); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+h1 { font-family: var(--font-display); font-size: 28px; line-height: 36px; font-weight: 700; letter-spacing: -.03em; text-wrap: balance; }
+h2 { font-weight: 600; letter-spacing: -.01em; text-wrap: balance; }
+.small { font-size: 13px; }
+.page > * { animation: none; }
+
+/* ---- top bar: a white bar with a 1px rule */
+.topbar { background: var(--surface); backdrop-filter: none; border-bottom: 1px solid var(--line); }
+.brand { font-family: var(--font-display); font-weight: 700; }
+.mark { background: var(--band); box-shadow: none; border-radius: 8px; color: #fff; }
+.search-input { background: var(--surface); border-color: var(--line); border-radius: 8px; min-height: 44px; }
+.search-input:focus-within { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.search-error { background: var(--bad-soft); border-radius: 8px; }
+
+/* ---- cards: border, no glass, no shadow */
+.card { background: var(--surface); backdrop-filter: none; box-shadow: none; border-radius: 16px; }
+.card-title .icon { color: var(--ink-2); }
+.card-foot { background: var(--surface-2); }
+.card-title h2, .section-title { }
+.section-title { font-family: var(--font-display); font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: .09em; }
+
+/* ---- flow: the current step is marked by ember */
+.flow { background: var(--surface); border-radius: 12px; }
+.flow button { border-radius: 8px; transition: background .12s ease, color .12s ease; }
+.flow button:hover { background: var(--raised); color: var(--ink); }
+.flow .current { background: var(--accent-tint); color: var(--ink); box-shadow: inset 3px 0 0 var(--accent); }
+.flow .current .num { background: var(--accent); border-color: transparent; color: #fff; box-shadow: none; }
+.flow .done .num { background: var(--ok-soft); border-color: var(--ok-line); color: var(--ok); }
+
+/* ---- the problems popup's compare table */
+.compare th, .compare td { border-bottom-color: var(--divider); }
+.compare th { font-size: 13px; font-weight: 500; }
+
+/* ---- forms: boxed 44px fields, a read-only value is a raised box */
+.field > span { font-size: 13px; line-height: 18px; font-weight: 500; color: var(--ink); }
+.field .value { display: flex; align-items: center; min-height: 44px; padding: 0 12px; background: var(--raised);
+  border: 1px solid var(--line); border-radius: 8px; font-weight: 400; }
+.field input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), .field select,
+.txn input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), .txn select,
+.suggest input, .col select {
+  height: 44px; padding: 0 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; color: var(--ink);
+  font-weight: 400; outline: none; transition: border-color .12s ease; }
+.field input:hover:not(:disabled), .field select:hover:not(:disabled), .txn input:hover:not(:disabled), .txn select:hover:not(:disabled),
+.suggest input:hover:not(:disabled) { border-color: var(--line-2); }
+/* 2px ember border without resizing the field: the 1px border plus a 1px inset ring */
+.field input:focus, .field select:focus, .txn input:focus, .txn select:focus, .suggest input:focus {
+  border: 1px solid var(--accent); padding: 0 12px; box-shadow: inset 0 0 0 1px var(--accent); }
+.field select, .txn select { appearance: none; padding-right: 40px; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 20px) 50%, calc(100% - 15px) 50%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+.field select:focus, .txn select:focus { padding-right: 40px; }
+input:disabled, select:disabled, textarea:disabled { background: var(--raised); color: var(--muted); }
+input[type="date"] { color-scheme: light dark; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
+textarea { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; color: var(--ink); font-weight: 400; min-height: 88px; }
+textarea:focus { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+select option { background: var(--surface); color: var(--ink); }
+.txn-no { background: var(--raised); border-radius: 6px; }
+.file { border-radius: 8px; min-height: 44px; }
+.file:hover { border-color: var(--line-2); color: var(--ink); background: var(--raised); }
+.suggest-list { background: var(--surface); border-radius: 12px; box-shadow: var(--e-lg); }
+.suggest-list li { border-radius: 8px; }
+.suggest-list li.is-active { background: var(--raised); box-shadow: inset 3px 0 0 var(--accent); }
+
+/* ---- segmented toggle: a grey track, the chosen option lifts */
+.toggle { background: var(--raised); border: 0; border-radius: 8px; padding: 3px; gap: 4px; }
+.toggle button { height: 36px; padding: 0 12px; border-radius: 6px; font-weight: 500; transition: color .12s ease, background .12s ease; }
+.toggle button:hover:not(:disabled):not(.is-on) { color: var(--ink); }
+.toggle button.is-on { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: var(--e-sm); }
+
+/* ---- buttons: ink creates, outline supports */
+.btn { height: 44px; padding: 0 16px; border-radius: 8px; font-weight: 600; font-size: 14px; transition: background .12s ease, border-color .12s ease; }
+.btn:active:not(:disabled) { transform: none; }
+.btn-primary { background: var(--cu-action, #172554); color: var(--on-ink); box-shadow: none; }
+.btn-primary:hover:not(:disabled) { background: var(--ink-fill-hover); filter: none; box-shadow: none; }
+.btn-primary:active:not(:disabled) { background: var(--ink-fill-pressed); }
+.btn-primary:disabled { opacity: 1; background: var(--line-2); color: var(--surface); }
+.btn-ghost { background: var(--surface); border-color: var(--line); color: var(--ink); }
+.btn-ghost:hover:not(:disabled) { background: var(--raised); border-color: var(--line-2); color: var(--ink); }
+.btn-text { color: var(--link); }
+.btn-waive { border-color: var(--warn-line) !important; color: var(--warn) !important; background: var(--warn-soft) !important; }
+.check-toggle { border-radius: 6px; }
+.check-toggle:hover { border-color: var(--line-2); color: var(--ink); }
+
+/* ---- chips: 6px, filled status pastel, always with a word */
+.badge { border-radius: 6px; font-weight: 600; }
+.badge::before { box-shadow: none; }
+.source { border-radius: 6px; font-weight: 600; }
+.source-aa, .source-extracted, .source-application { background: var(--info-soft); color: var(--info); }
+.notice { border-radius: 8px; }
+
+/* ---- tables */
+.checklist th { font-size: 13px; font-weight: 500; text-transform: none; letter-spacing: 0; }
+.checklist td, .checklist th { border-bottom-color: var(--divider); }
+.checklist input { accent-color: var(--accent); }
+.decision button { background: var(--surface); border-color: var(--line); border-radius: 8px; font-weight: 600; }
+.decision button:hover:not(:disabled) { border-color: var(--line-2); background: var(--raised); }
+.grid-table-wrap { border-color: var(--line); border-radius: 12px; }
+.grid-table th, .grid-table td { border-color: var(--divider); }
+.grid-table thead th { background: var(--surface); border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 500; text-transform: none; letter-spacing: 0; }
+.grid-table tr.group td { background: var(--raised); color: var(--muted); font-family: var(--font-display); letter-spacing: .09em; }
+.grid-table tr.is-bad td, .grid-table tr.is-bad th { background: var(--bad-soft); }
+.viewer-table th { background: var(--surface); }
+.viewer-table th, .viewer-table td { border-bottom-color: var(--divider); }
+
+/* ---- overlays */
+.overlay { background: var(--scrim); backdrop-filter: none; }
+.popup { background: var(--surface); border-radius: 16px; box-shadow: var(--e-lg); }
+.popup-icon { border-radius: 8px; }
+.waive-body textarea { border-color: var(--line); border-radius: 8px; }
+
+/* ---- timeline, loading */
+.timeline li::before { background: var(--ink-2); box-shadow: none; }
+.spinner { border-color: var(--line-2); border-top-color: var(--accent); }
+.skeleton { background: linear-gradient(90deg, var(--raised), var(--raised-hover), var(--raised)); background-size: 200% 100%; }

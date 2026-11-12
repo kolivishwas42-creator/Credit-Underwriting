@@ -1,0 +1,17 @@
+{
+  "application_id": 1001,
+  "participant_id": 2001,
+  "verification_type": "RESIDENCE",
+  "vendor_name": "Manual Vendor Entry",
+  "vendor_response": {
+    "status": "Positive",
+    "final_status": "Approved",
+    "neighbour_check": "Yes",
+    "address_confirmed": "Yes",
+    "corrected_address": null,
+    "negative_area": "No",
+    "political_link": "No",
+    "name_plate_visible": "Yes",
+    "community_dominated": "No"
+  }
+}

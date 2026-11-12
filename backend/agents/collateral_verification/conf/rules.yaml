@@ -1,0 +1,81 @@
+# Collateral verification -- the DEFAULT rule configuration.
+#
+# These values seed the database tables collateral_rule_configs / collateral_system_settings on first start (when
+# they are empty). After that the database is the live configuration (edited from the Rules Config tab or the
+# /rules and /settings endpoints); this file is only the starting point and the fallback when the database is down.
+
+# Vendor decision values accepted on the verify request (case-insensitive).
+vendor_final_statuses: ["approved", "rejected"]
+
+# Absolute percentage-point tolerance for rule 9 (completion %).
+completion_tolerance_pp: 10
+
+# PIN is extracted and displayed only; comparison flag kept for the settings screen.
+compare_pin: false
+
+# Minimum token-overlap score (0-1) to treat two person names as the same.
+name_match_threshold: 0.8
+
+# When true, a vendor "approved" with a REFER / WARNING outcome (or "rejected" with PASS) is flagged as a conflict.
+flag_vendor_status_conflict: true
+
+# When true, an unsatisfied CERSAI security interest adds a REFER line for legal review.
+flag_unsatisfied_cersai_charge: true
+
+# The rules, in evaluation order. tolerance_pp: null on rule 9 means "completion_tolerance_pp".
+rules:
+  rule_1_owner_name:
+    enabled: true
+    label: "Property owner name"
+  rule_2_ownership:
+    enabled: true
+    label: "Single vs joint ownership"
+  rule_3_applicant_is_owner:
+    enabled: true
+    label: "Applicant vs property owner"
+  rule_pan:
+    enabled: true
+    label: "Owner PAN vs CERSAI debtor search PAN"
+  rule_8_construction_status:
+    enabled: false
+    label: "Construction status"
+  rule_9_completion_percent:
+    enabled: false
+    label: "Percentage of completion"
+    tolerance_pp: null
+  rule_13_location:
+    enabled: true
+    label: "PIN, city and state"
+  rule_14_unit_number:
+    enabled: true
+    label: "Flat / house number"
+  rule_17_registered_deed:
+    enabled: true
+    label: "Registered document availability"
+
+# The system settings rows seeded into the database: key -> (value type, description). The value comes from the
+# matching lower-case key above.
+settings:
+  COMPLETION_TOLERANCE_PP:
+    type: "number"
+    description: "Absolute percentage-point tolerance for completion % rule"
+  NAME_MATCH_THRESHOLD:
+    type: "number"
+    description: "Minimum token-overlap score (0–1) for person name match"
+  COMPARE_PIN:
+    type: "boolean"
+    description: "Whether PIN is compared (currently display-only when false)"
+  FLAG_VENDOR_STATUS_CONFLICT:
+    type: "boolean"
+    description: "Flag conflict when vendor approved but REFER rules exist"
+  FLAG_UNSATISFIED_CERSAI_CHARGE:
+    type: "boolean"
+    description: "Raise REFER when CERSAI charge is not satisfied"
+  VENDOR_FINAL_STATUSES:
+    type: "json"
+    description: "Allowed vendor final_status values (case-insensitive)"
+
+# The LOS case tables (loan_applications, collateral_properties, collateral_property_documents,
+# application_participants, customers, primary_applicant_kyc) live in this schema of the shared database.
+# Override with COLLATERAL_VERIFICATION_LOS_SCHEMA.
+los_schema: "public"

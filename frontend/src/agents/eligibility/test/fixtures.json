@@ -1,0 +1,657 @@
+{
+ "form": {
+  "editable": [
+   {
+    "key": "requested_amount",
+    "type": "amount",
+    "label": "Loan amount (₹)"
+   },
+   {
+    "key": "tenure_months",
+    "type": "int",
+    "label": "Tenure (months)"
+   },
+   {
+    "key": "rate_percent",
+    "type": "percent",
+    "label": "Rate (% a year)"
+   }
+  ],
+  "loan_types": {
+   "HOME_LOAN": "Home loan",
+   "BUSINESS_LOAN": "Business loan",
+   "PERSONAL_LOAN": "Personal loan",
+   "LOAN_AGAINST_PROPERTY": "Loan against property"
+  },
+  "case_fields": [
+   {
+    "key": "product",
+    "label": "Product"
+   },
+   {
+    "key": "age",
+    "label": "Age (years)"
+   },
+   {
+    "key": "net_monthly_income",
+    "label": "Declared net monthly income (₹)"
+   },
+   {
+    "key": "existing_emi",
+    "label": "Existing EMIs (₹/month)"
+   },
+   {
+    "key": "bureau_score",
+    "label": "Bureau score"
+   },
+   {
+    "key": "max_dpd_12m",
+    "label": "Worst DPD, last 12 months (days)"
+   },
+   {
+    "key": "write_offs",
+    "label": "Written-off accounts"
+   },
+   {
+    "key": "settlements",
+    "label": "Settled accounts"
+   },
+   {
+    "key": "property_value",
+    "label": "Property value (₹)"
+   }
+  ],
+  "topup_types": {
+   "BT_TOPUP": {
+    "label": "Balance transfer + top-up",
+    "fields": [
+     {
+      "key": "bank_name",
+      "type": "text",
+      "group": "Loan being taken over",
+      "label": "Current bank / NBFC",
+      "sample": "ABC Finance Ltd",
+      "required": false
+     },
+     {
+      "key": "loan_type",
+      "type": "select",
+      "group": "Loan being taken over",
+      "label": "Loan type",
+      "sample": "HOME_LOAN",
+      "options": {
+       "HOME_LOAN": "Home loan",
+       "BUSINESS_LOAN": "Business loan",
+       "PERSONAL_LOAN": "Personal loan",
+       "LOAN_AGAINST_PROPERTY": "Loan against property"
+      },
+      "required": false
+     },
+     {
+      "key": "original_amount",
+      "group": "Loan being taken over",
+      "label": "Original loan amount (₹)",
+      "sample": 1500000,
+      "required": false
+     },
+     {
+      "key": "total_tenor_months",
+      "type": "int",
+      "group": "Loan being taken over",
+      "label": "Total tenure (months)",
+      "sample": 180,
+      "required": false
+     },
+     {
+      "key": "pos",
+      "group": "Top-up",
+      "label": "Outstanding (POS) (₹)",
+      "sample": 1150000,
+      "required": true
+     },
+     {
+      "key": "mob",
+      "type": "int",
+      "group": "Top-up",
+      "label": "Months on book",
+      "sample": 30,
+      "required": true
+     },
+     {
+      "key": "applied_pct",
+      "type": "percent",
+      "group": "Top-up",
+      "label": "Applied % (≤ applicable)",
+      "sample": 25,
+      "required": false
+     }
+    ]
+   },
+   "INTERNAL_TOPUP": {
+    "label": "Internal top-up (our existing loan)",
+    "fields": [
+     {
+      "key": "lan_number",
+      "type": "text",
+      "group": "Existing loan",
+      "label": "LAN number",
+      "sample": "LAN0001234567",
+      "required": false
+     },
+     {
+      "key": "loan_type",
+      "type": "select",
+      "group": "Existing loan",
+      "label": "Loan type",
+      "sample": "LOAN_AGAINST_PROPERTY",
+      "options": {
+       "HOME_LOAN": "Home loan",
+       "BUSINESS_LOAN": "Business loan",
+       "PERSONAL_LOAN": "Personal loan",
+       "LOAN_AGAINST_PROPERTY": "Loan against property"
+      },
+      "required": false
+     },
+     {
+      "key": "previous_sanction",
+      "group": "Existing loan",
+      "label": "Latest sanction amount (₹)",
+      "sample": 1500000,
+      "required": true
+     },
+     {
+      "key": "pos",
+      "group": "Existing loan",
+      "label": "Outstanding (POS, total) (₹)",
+      "sample": 900000,
+      "required": true
+     },
+     {
+      "key": "original_tenor_months",
+      "type": "int",
+      "group": "Existing loan",
+      "label": "Original tenure (months)",
+      "sample": 120,
+      "required": true
+     },
+     {
+      "key": "mob",
+      "type": "int",
+      "group": "Existing loan",
+      "label": "Months on book (latest loan)",
+      "sample": 40,
+      "required": true
+     },
+     {
+      "key": "additional_loan_amount",
+      "group": "Top-up",
+      "label": "Additional amount asked (₹)",
+      "sample": 800000,
+      "required": false
+     },
+     {
+      "key": "loan_tenor_months",
+      "type": "int",
+      "group": "Top-up",
+      "label": "Top-up tenure (months)",
+      "sample": 120,
+      "required": false
+     },
+     {
+      "key": "applied_pct",
+      "type": "percent",
+      "group": "Top-up",
+      "label": "Applied % (≤ applicable)",
+      "sample": 20,
+      "required": false
+     }
+    ]
+   }
+  },
+  "income_methods": {
+   "ITR": {
+    "label": "ITR (annual figures)",
+    "fields": [
+     {
+      "key": "income_as_per_itr",
+      "label": "Business income as per ITR (₹/year)",
+      "sample": 1800000,
+      "required": true
+     },
+     {
+      "key": "tax",
+      "label": "Tax (₹/year)",
+      "sample": 210000,
+      "required": false
+     },
+     {
+      "key": "other_income",
+      "label": "Other income (₹/year)",
+      "sample": 120000,
+      "required": false
+     }
+    ]
+   },
+   "ASSESSED": {
+    "label": "Assessed (monthly cash flow)",
+    "fields": [
+     {
+      "key": "gross_sales",
+      "group": "A · Sales",
+      "label": "Gross sales / receipts (₹/month)",
+      "sample": 450000,
+      "required": true
+     },
+     {
+      "key": "rental_income",
+      "group": "B · Additional income (₹/month)",
+      "label": "Rental income",
+      "sample": 15000,
+      "required": false
+     },
+     {
+      "key": "commission_income",
+      "group": "B · Additional income (₹/month)",
+      "label": "Commission income",
+      "sample": 0,
+      "required": false
+     },
+     {
+      "key": "agricultural_income",
+      "group": "B · Additional income (₹/month)",
+      "label": "Agricultural income",
+      "sample": 10000,
+      "required": false
+     },
+     {
+      "key": "interest_income",
+      "group": "B · Additional income (₹/month)",
+      "label": "Interest income",
+      "sample": 5000,
+      "required": false
+     },
+     {
+      "key": "other_additional_label",
+      "type": "text",
+      "group": "B · Additional income (₹/month)",
+      "label": "Other income (specify)",
+      "required": false
+     },
+     {
+      "key": "other_additional_income",
+      "group": "B · Additional income (₹/month)",
+      "label": "Other income",
+      "sample": 0,
+      "required": false
+     },
+     {
+      "key": "clubbed_relationship",
+      "type": "text",
+      "group": "C · Clubbed income (co-applicant)",
+      "label": "Co-applicant relationship",
+      "sample": "Spouse",
+      "required": false
+     },
+     {
+      "key": "clubbed_income",
+      "group": "C · Clubbed income (co-applicant)",
+      "label": "Net income clubbed (₹/month)",
+      "sample": 20000,
+      "required": false
+     },
+     {
+      "key": "material_cost",
+      "group": "E · Business expenses (₹/month)",
+      "label": "Material cost",
+      "sample": 240000,
+      "required": false
+     },
+     {
+      "key": "salary_expenses",
+      "group": "E · Business expenses (₹/month)",
+      "label": "Salaries",
+      "sample": 45000,
+      "required": false
+     },
+     {
+      "key": "admin_expenses",
+      "group": "E · Business expenses (₹/month)",
+      "label": "Admin",
+      "sample": 12000,
+      "required": false
+     },
+     {
+      "key": "operating_expenses",
+      "group": "E · Business expenses (₹/month)",
+      "label": "Operating",
+      "sample": 18000,
+      "required": false
+     },
+     {
+      "key": "business_rent",
+      "group": "E · Business expenses (₹/month)",
+      "label": "Rent (business premises)",
+      "sample": 25000,
+      "required": false
+     },
+     {
+      "key": "other_business_expenses",
+      "group": "E · Business expenses (₹/month)",
+      "label": "Others",
+      "sample": 5000,
+      "required": false
+     },
+     {
+      "key": "living_expenses",
+      "group": "G · Personal expenses (₹/month)",
+      "label": "Living",
+      "sample": 30000,
+      "required": false
+     },
+     {
+      "key": "education_expenses",
+      "group": "G · Personal expenses (₹/month)",
+      "label": "Education",
+      "sample": 8000,
+      "required": false
+     },
+     {
+      "key": "conveyance_expenses",
+      "group": "G · Personal expenses (₹/month)",
+      "label": "Conveyance",
+      "sample": 6000,
+      "required": false
+     },
+     {
+      "key": "residential_rent",
+      "group": "G · Personal expenses (₹/month)",
+      "label": "Rent (residence)",
+      "sample": 0,
+      "required": false
+     },
+     {
+      "key": "existing_loan_emi",
+      "group": "G · Personal expenses (₹/month)",
+      "label": "Existing loan EMI",
+      "sample": 12000,
+      "required": false
+     },
+     {
+      "key": "other_personal_expenses",
+      "group": "G · Personal expenses (₹/month)",
+      "label": "Others",
+      "sample": 4000,
+      "required": false
+     }
+    ]
+   },
+   "SALARIED": {
+    "label": "Salaried (monthly figures)",
+    "fields": [
+     {
+      "key": "company_name",
+      "type": "text",
+      "group": "Employment",
+      "label": "Company name",
+      "sample": "Acme Infotech Pvt Ltd",
+      "required": false
+     },
+     {
+      "key": "designation",
+      "type": "text",
+      "group": "Employment",
+      "label": "Designation",
+      "sample": "Senior Engineer",
+      "required": false
+     },
+     {
+      "key": "salary_credit_mode",
+      "type": "select",
+      "group": "Employment",
+      "label": "Salary credited by",
+      "sample": "BANK",
+      "options": {
+       "BANK": "Bank transfer",
+       "CASH": "Cash",
+       "CHEQUE": "Cheque"
+      },
+      "required": false
+     },
+     {
+      "key": "total_experience_years",
+      "type": "int",
+      "group": "Employment",
+      "label": "Total experience (years)",
+      "sample": 8,
+      "required": false
+     },
+     {
+      "key": "gross_salary",
+      "group": "Monthly salary",
+      "label": "Gross salary (₹/month)",
+      "sample": 95000,
+      "required": true
+     },
+     {
+      "key": "other_income",
+      "group": "Monthly salary",
+      "label": "Other income (₹/month)",
+      "sample": 4000,
+      "required": false
+     },
+     {
+      "key": "pf_deduction",
+      "group": "Monthly salary",
+      "label": "PF deduction (₹/month)",
+      "sample": 5700,
+      "required": false
+     },
+     {
+      "key": "other_deduction",
+      "group": "Monthly salary",
+      "label": "Other deduction (₹/month)",
+      "sample": 2500,
+      "required": false
+     },
+     {
+      "key": "form16_income",
+      "group": "Monthly salary",
+      "label": "Income as per latest Form 16 (₹/year)",
+      "sample": 1104000,
+      "required": false
+     }
+    ]
+   },
+   "CASH_PROFIT": {
+    "label": "Cash profit (business, annual)",
+    "fields": [
+     {
+      "key": "profit_after_tax",
+      "label": "Profit after tax (₹/year)",
+      "sample": 950000,
+      "required": true
+     },
+     {
+      "key": "depreciation",
+      "label": "Depreciation (₹/year)",
+      "sample": 140000,
+      "required": false
+     },
+     {
+      "key": "interest_to_partners",
+      "label": "Interest on partners' capital (₹/year)",
+      "sample": 60000,
+      "required": false
+     },
+     {
+      "key": "remuneration_to_partners",
+      "label": "Remuneration to partners (₹/year)",
+      "sample": 180000,
+      "required": false
+     },
+     {
+      "key": "remuneration_to_directors",
+      "label": "Remuneration to directors (₹/year)",
+      "sample": 0,
+      "required": false
+     },
+     {
+      "key": "other_income",
+      "label": "Other income (₹/year)",
+      "sample": 50000,
+      "required": false
+     }
+    ]
+   },
+   "GROSS_PROFIT": {
+    "label": "Gross profit (business, annual)",
+    "fields": [
+     {
+      "key": "audited",
+      "type": "select",
+      "label": "Financials",
+      "sample": "AUDITED",
+      "options": {
+       "AUDITED": "Audited",
+       "UNAUDITED": "Unaudited"
+      },
+      "required": false
+     },
+     {
+      "key": "turnover",
+      "label": "Turnover (₹/year)",
+      "sample": 12000000,
+      "required": true
+     },
+     {
+      "key": "gross_margin",
+      "label": "Gross margin as per financials (₹/year)",
+      "sample": 2100000,
+      "required": true
+     },
+     {
+      "key": "rental_income",
+      "label": "Rental income (₹/year)",
+      "sample": 300000,
+      "required": false
+     }
+    ]
+   }
+  },
+  "occupancy_types": {
+   "RENTED": "Rented",
+   "VACANT": "Vacant",
+   "SELF_OCCUPIED": "Self-occupied"
+  },
+  "collateral_types": {
+   "COMMERCIAL": "Commercial",
+   "INDUSTRIAL": "Industrial",
+   "RESIDENTIAL": "Residential"
+  },
+  "existing_exposure_label": "Other loans already on this property (₹)",
+  "products": [
+   "HOME_LOAN",
+   "LOAN_AGAINST_PROPERTY",
+   "PERSONAL_LOAN"
+  ],
+  "secured_products": [
+   "HOME_LOAN",
+   "LOAN_AGAINST_PROPERTY"
+  ],
+  "config_status": "DEMO_NON_PRODUCTION",
+  "config_version": "2.0-demo"
+ },
+ "cases": {
+  "cases": [
+   {
+    "case_id": "CASE-E11D00000001",
+    "label": "salaried, strong profile",
+    "product": "PERSONAL_LOAN"
+   },
+   {
+    "case_id": "CASE-E11D00000002",
+    "label": "home loan well inside FOIR and LTV",
+    "product": "HOME_LOAN"
+   },
+   {
+    "case_id": "CASE-E11D00000003",
+    "label": "loan against property inside LTV",
+    "product": "LOAN_AGAINST_PROPERTY"
+   }
+  ]
+ },
+ "case": {
+  "case_id": "CASE-E11D00000002",
+  "case": {
+   "product": "HOME_LOAN",
+   "age": 38,
+   "net_monthly_income": 180000.0,
+   "existing_emi": 15000.0,
+   "bureau_score": 810,
+   "max_dpd_12m": 0,
+   "write_offs": 0,
+   "settlements": 0,
+   "property_value": 9000000.0,
+   "requested_amount": 5000000.0,
+   "tenure_months": 240,
+   "rate_percent": 9.0
+  },
+  "saved": null
+ },
+ "check": {
+  "case_id": "CASE-E11D00000002",
+  "decision": "APPROVED",
+  "summary": "Eligible for the full ₹50,00,000 requested. EMI ₹44,986 over 240 months.",
+  "offer": {
+   "amount": 5000000.0,
+   "range": "₹25 L - ₹50 L",
+   "emi": 44986.3,
+   "tenure_months": 240,
+   "rate_percent": 9.0
+  },
+  "checks": [
+   {
+    "label": "Age",
+    "result": "pass",
+    "value": 38,
+    "limit": "21-60, max 65 at maturity"
+   },
+   {
+    "label": "Net monthly income",
+    "result": "pass",
+    "value": 180000.0,
+    "limit": 25000
+   },
+   {
+    "label": "Bureau score",
+    "result": "pass",
+    "value": 810,
+    "limit": 700
+   },
+   {
+    "label": "Repayment history (DPD)",
+    "result": "pass",
+    "value": 0,
+    "limit": 30
+   },
+   {
+    "label": "FOIR (EMIs / income)",
+    "result": "pass",
+    "value": 33.33,
+    "limit": 50
+   },
+   {
+    "label": "Loan to value",
+    "result": "pass",
+    "value": 55.56,
+    "limit": 80.0
+   }
+  ],
+  "next_steps": [
+   "Proceed with ₹50,00,000 at EMI ₹44,986."
+  ],
+  "working": {
+   "property": "LTV limit 80% (RBI slab)"
+  }
+ }
+}

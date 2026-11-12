@@ -1,0 +1,88 @@
+/* Ink & Ember v3.0 (docs/DESIGN.md, 11 Nov 2026) — the colours of the finished LOS pages.
+   Code names are --ie-<kebab> (§3.0); the short names below (--ink, --canvas …) are aliases the console and the
+   agent screens already read. Light = live values. Dark = carried over from v2.0 ("specified, not built", §3.0).
+   Derived values: *-subtle = the status colour mixed into surface at 12% / 14% / 11% (page-engine rule);
+   raised / border-strong / text-disabled / icon-default and the *-text colours from the Tailwind slate / green /
+   amber / red scales; shadows tinted rgb(16,24,40). */
+:root {
+  /* Ink — creates */
+  --ie-ink: #18181B; --ie-ink-hover: #27272A; --ie-ink-pressed: #09090B; --ie-ink-disabled: #D4D4D8; --ie-on-ink: #FFFFFF;
+  /* The MARK — dark blue (owner 2026-11-11: no ember, no orange). Name kept as --ie-ember so nothing else changes. */
+  --ie-ember: #3B57D6; --ie-ember-hover: #314BBF; --ie-ember-pressed: #253DA3;
+  --ie-ember-subtle: #DBE4FF; --ie-ember-tint: #EEF3FF; --ie-ember-text: #3B57D6;
+  /* Link — informs */
+  --ie-link: #4F5AC7; --ie-link-hover: #3F49AB; --ie-info-subtle: #EEF0FC; --ie-info-text: #4148A8;
+  /* Neutrals — slate */
+  --ie-canvas: #F4F6FA; --ie-surface: #FFFFFF; --ie-raised: #F1F5F9; --ie-raised-hover: #E2E8F0;
+  --ie-border: #E2E8F0; --ie-border-strong: #CBD5E1; --ie-divider: #E2E8F0;
+  --ie-text-primary: #0F172A; --ie-text-secondary: #64748B; --ie-text-disabled: #94A3B8; --ie-icon-default: #475569;
+  /* Status (pastel family) */
+  --ie-success: #15803D; --ie-success-subtle: #E3F0E8; --ie-success-text: #166534;
+  --ie-warning: #B45309; --ie-warning-subtle: #F5E7DD; --ie-warning-text: #92400E;
+  --ie-error: #DC2626; --ie-error-hover: #B91C1C; --ie-error-subtle: #FBE7E7; --ie-error-text: #B91C1C;
+  --ie-rating: #F5A623;
+  /* Bands (page heroes, the result basic card) */
+  --ie-band: #1E1B4B; --ie-band-end: #3B57D6;
+  /* Utility */
+  --ie-scrim: rgba(15, 23, 42, .5);
+  --ie-e-sm: 0 1px 3px rgba(16, 24, 40, .06); --ie-e-md: 0 4px 12px rgba(16, 24, 40, .10);
+  --ie-e-lg: 0 12px 32px rgba(16, 24, 40, .16);
+
+  /* the ACTION colour — primary buttons and filled marks, navy (owner 2026-11-11: no black buttons) */
+  --cu-action: #253DA3; --cu-action-hover: #314BBF; --cu-on-action: #FFFFFF;
+
+  /* aliases used by the console and the agent screens */
+  --ink: var(--ie-ink); --ink-hover: var(--ie-ink-hover); --ink-pressed: var(--ie-ink-pressed);
+  --ink-disabled: var(--ie-ink-disabled); --on-ink: var(--ie-on-ink); --on-color: #FFFFFF;
+  --accent: var(--ie-ember); --accent-hover: var(--ie-ember-hover); --accent-subtle: var(--ie-ember-subtle);
+  --accent-tint: var(--ie-ember-tint); --accent-text: var(--ie-ember-text);
+  --link: var(--ie-link); --info-subtle: var(--ie-info-subtle); --info-text: var(--ie-info-text);
+  --canvas: var(--ie-canvas); --surface: var(--ie-surface); --raised: var(--ie-raised); --raised-hover: var(--ie-raised-hover);
+  --border: var(--ie-border); --border-strong: var(--ie-border-strong); --divider: var(--ie-divider);
+  --text-primary: var(--ie-text-primary); --text-secondary: var(--ie-text-secondary);
+  --text-disabled: var(--ie-text-disabled); --icon-default: var(--ie-icon-default);
+  --success: var(--ie-success); --success-subtle: var(--ie-success-subtle); --success-text: var(--ie-success-text);
+  --warning: var(--ie-warning); --warning-subtle: var(--ie-warning-subtle); --warning-text: var(--ie-warning-text);
+  --error: var(--ie-error); --error-subtle: var(--ie-error-subtle); --error-text: var(--ie-error-text);
+  --band: var(--ie-band); --band-end: var(--ie-band-end);
+  --e-sm: var(--ie-e-sm); --e-md: var(--ie-e-md); --e-lg: var(--ie-e-lg);
+
+  /* Type — two faces, one job each */
+  --font-display: "Space Grotesk", "Inter", -apple-system, "Segoe UI", sans-serif;
+  --font-body: "Lexend", "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Radius / spacing */
+  --r-xs: 6px; --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px;
+}
+
+/* Dark: v2.0 values, carried over (DESIGN.md §3.0 — specified, not re-authored for slate yet). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ie-ink: #FAFAFA; --ie-ink-hover: #FFFFFF; --ie-ink-pressed: #E4E4E7; --ie-ink-disabled: #3F3F46; --ie-on-ink: #18181B;
+    --ie-ember: #60A5FA; --ie-ember-hover: #93C5FD; --ie-ember-subtle: #172554; --ie-ember-tint: #0F1D3A; --ie-ember-text: #93C5FD;
+    --ie-link: #8B94E8; --ie-info-subtle: #1D2040; --ie-info-text: #A3AAF0;
+    --ie-canvas: #0C0C0D; --ie-surface: #141416; --ie-raised: #1D1D20; --ie-raised-hover: #26262A;
+    --ie-border: #27272A; --ie-border-strong: #3F3F46; --ie-divider: #1F1F22;
+    --ie-text-primary: #FAFAFA; --ie-text-secondary: #A1A1AA; --ie-text-disabled: #71717A; --ie-icon-default: #D4D4D8;
+    --ie-success: #3FA65C; --ie-success-subtle: #102416; --ie-success-text: #6FCB8D;
+    --ie-warning: #D9A13A; --ie-warning-subtle: #2A2010; --ie-warning-text: #E8BC63;
+    --ie-error: #E06A6A; --ie-error-subtle: #2E1818; --ie-error-text: #F09090;
+    --ie-band: #141416; --ie-band-end: #1D2040;
+    --cu-action: #93C5FD; --cu-action-hover: #BFDBFE; --cu-on-action: #0F172A;
+    --ie-e-sm: 0 1px 3px rgba(0, 0, 0, .5); --ie-e-md: 0 4px 12px rgba(0, 0, 0, .55);
+  }
+}
+:root[data-theme="dark"] {
+  --ie-ink: #FAFAFA; --ie-ink-hover: #FFFFFF; --ie-ink-pressed: #E4E4E7; --ie-ink-disabled: #3F3F46; --ie-on-ink: #18181B;
+  --ie-ember: #60A5FA; --ie-ember-hover: #93C5FD; --ie-ember-subtle: #172554; --ie-ember-tint: #0F1D3A; --ie-ember-text: #93C5FD;
+  --ie-link: #8B94E8; --ie-info-subtle: #1D2040; --ie-info-text: #A3AAF0;
+  --ie-canvas: #0C0C0D; --ie-surface: #141416; --ie-raised: #1D1D20; --ie-raised-hover: #26262A;
+  --ie-border: #27272A; --ie-border-strong: #3F3F46; --ie-divider: #1F1F22;
+  --ie-text-primary: #FAFAFA; --ie-text-secondary: #A1A1AA; --ie-text-disabled: #71717A; --ie-icon-default: #D4D4D8;
+  --ie-success: #3FA65C; --ie-success-subtle: #102416; --ie-success-text: #6FCB8D;
+  --ie-warning: #D9A13A; --ie-warning-subtle: #2A2010; --ie-warning-text: #E8BC63;
+  --ie-error: #E06A6A; --ie-error-subtle: #2E1818; --ie-error-text: #F09090;
+  --ie-band: #141416; --ie-band-end: #1D2040;
+  --cu-action: #93C5FD; --cu-action-hover: #BFDBFE; --cu-on-action: #0F172A;
+  --ie-e-sm: 0 1px 3px rgba(0, 0, 0, .5); --ie-e-md: 0 4px 12px rgba(0, 0, 0, .55);
+}

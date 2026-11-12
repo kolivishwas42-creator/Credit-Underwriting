@@ -1,0 +1,155 @@
+{
+  "_note": "SYNTHETIC answer of POST /api/v1/credit/document-readiness/{case_id}/rules, shaped exactly like backend/agents/docs_policy (api/routes.py dashboard_rules, models/response.py, services/board_service.py, config/dashboard.yaml). The running backend answered 503 AUDIT_UNAVAILABLE for every seeded case on 2026-11-07, so no real answer could be captured. Invented names, no customer data.",
+  "board": {
+    "case": {
+      "case_id": "CASE-D0C500000003",
+      "applicant_name": "Asha Kulkarni",
+      "co_applicant_name": "Vikram Kulkarni",
+      "loan_amount": 2500000,
+      "employment_type": "SALARIED",
+      "co_applicant_employment_type": null
+    },
+    "answer": {
+      "request_id": "0f3a9c1e2b7d4e5f8a6b1c2d3e4f5a6b",
+      "application_id": "CASE-D0C500000003",
+      "stage": "CREDIT",
+      "product": "HOME_LOAN",
+      "policy_version": "2026.10",
+      "overall_status": "ACTION_REQUIRED",
+      "requirements": [
+        {
+          "rule_id": "RULE-03", "rule_name": "Missing documents", "check_id": "PRIMARY_APPLICANT:ADDRESS_PROOF",
+          "status": "ACTION_REQUIRED", "severity": "BLOCKING", "party_role": "PRIMARY_APPLICANT", "party_id": "P-1",
+          "missing_documents": ["AADHAAR", "PASSPORT", "VOTER_ID"],
+          "reason": "The address proof is not on file. Ask the customer for one accepted document.",
+          "recommended_action": "Collect the address proof."
+        },
+        {
+          "rule_id": "RULE-02", "rule_name": "Applicant coverage", "check_id": "CO_APPLICANT:SIGNATURE",
+          "status": "ACTION_REQUIRED", "severity": "BLOCKING", "party_role": "CO_APPLICANT", "party_id": "P-2",
+          "reason": "The signature was rejected by verification. A new signature is needed.",
+          "recommended_action": "Collect a fresh signature.", "evidence": ["document:D-21"]
+        },
+        {
+          "rule_id": "RULE-09", "rule_name": "Approved exceptions", "check_id": "PRIMARY_APPLICANT:INCOME_PROOF",
+          "status": "EXCEPTION_PENDING", "severity": "BLOCKING", "party_role": "PRIMARY_APPLICANT", "party_id": "P-1",
+          "reason": "An exception for the income proof is awaiting approval. Wait for the authority's decision.",
+          "recommended_action": "Wait for the exception decision.", "deviation_codes": ["DEV-INC-01"]
+        },
+        {
+          "rule_id": "RULE-06", "rule_name": "Period and freshness", "check_id": "PRIMARY_APPLICANT:BANK_STATEMENT:PERIOD",
+          "status": "ACTION_REQUIRED", "severity": "NON_BLOCKING", "party_role": "PRIMARY_APPLICANT", "party_id": "P-1",
+          "reason": "The bank statement covers 4 months; 6 are needed. Ask for the missing months.",
+          "recommended_action": "Ask for the missing months.", "evidence": ["document:D-12"]
+        },
+        {
+          "rule_id": "RULE-07", "rule_name": "Supporting documents", "check_id": "PRIMARY_APPLICANT:ITR:COMPUTATION",
+          "status": "ACTION_REQUIRED", "severity": "NON_BLOCKING", "party_role": "PRIMARY_APPLICANT", "party_id": "P-1",
+          "reason": "The applicant gave the ITR; it needs its ITR computation.",
+          "recommended_action": "Ask for the ITR computation."
+        }
+      ],
+      "recommended_action": "Refer the case to the higher authority.",
+      "credit_underwriting_allowed": false,
+      "audit": {
+        "evaluation_id": "EV-0001", "evaluation_status": "COMPLETED", "evaluated_at": "2026-11-07T09:00:00Z",
+        "policy_id": "CREDIT_DOCS", "policy_version": "2026.10", "policy_status": "SAMPLE",
+        "policy_file_sha256": "0000", "base_policy": {}, "input_hash": "0000", "rules_evaluated": 11,
+        "requirements_satisfied": 6, "requirements_open": 5, "reused_documents": [], "waivers_applied": [],
+        "rules_disabled": [], "recorded": true, "replayed": false
+      },
+      "summary": {
+        "headline": "Two critical items are open.",
+        "route": {
+          "decision": "REFER_TO_AUTHORITY", "label": "Refer to higher authority",
+          "text": "A critical item is open: the credit manager decides.", "critical": 2, "non_critical": 2,
+          "authority": "ACM"
+        },
+        "missing": ["Address proof"],
+        "minor_missing": ["ITR computation"],
+        "not_satisfied": ["Signature", "Bank statement"],
+        "people": {
+          "PRIMARY_APPLICANT": { "name": "Asha Kulkarni", "open": 4, "critical": 1 },
+          "CO_APPLICANT": { "name": "Vikram Kulkarni", "open": 1, "critical": 1 }
+        },
+        "next_step": "Collect the address proof and a fresh signature, then re-check.",
+        "ai_summary": {
+          "text": "Refer to higher authority. Asha Kulkarni has no address proof on file; Vikram Kulkarni's signature was rejected.",
+          "source": "ai"
+        }
+      }
+    },
+    "rules": [
+      { "rule_id": "RULE-01", "name": "Product document list", "help": "The product's document list for this stage",
+        "explain": "Finds this product's required document list for the credit stage, from the product document policy.",
+        "status": "PASS", "passed": 1, "total": 1,
+        "checks": [{ "check_id": "PRODUCT", "status": "SATISFIED", "severity": "BLOCKING", "party_role": null, "reason": "The home loan document list was found for the credit stage." }] },
+      { "rule_id": "RULE-02", "name": "Applicant coverage", "help": "Each person on the loan has their own documents",
+        "explain": "Checks every person on the loan separately.",
+        "status": "FAIL", "passed": 2, "total": 3,
+        "checks": [
+          { "check_id": "CO_APPLICANT:PAN", "status": "SATISFIED", "severity": "BLOCKING", "party_role": "CO_APPLICANT", "reason": "The PAN is on file and verified." },
+          { "check_id": "CO_APPLICANT:ADDRESS_PROOF", "status": "SATISFIED", "severity": "BLOCKING", "party_role": "CO_APPLICANT", "reason": "The address proof is on file and verified." },
+          { "check_id": "CO_APPLICANT:SIGNATURE", "status": "ACTION_REQUIRED", "severity": "BLOCKING", "party_role": "CO_APPLICANT", "reason": "The signature was rejected by verification. A new signature is needed." }
+        ] },
+      { "rule_id": "RULE-03", "name": "Missing documents", "help": "Every required document is on file",
+        "explain": "Every required document must be on file and verified. A missing one is asked from the customer.",
+        "status": "FAIL", "passed": 2, "total": 3,
+        "checks": [
+          { "check_id": "PRIMARY_APPLICANT:PAN", "status": "SATISFIED", "severity": "BLOCKING", "party_role": "PRIMARY_APPLICANT", "reason": "The PAN is on file and verified." },
+          { "check_id": "PRIMARY_APPLICANT:ADDRESS_PROOF", "status": "ACTION_REQUIRED", "severity": "BLOCKING", "party_role": "PRIMARY_APPLICANT", "reason": "The address proof is not on file. Ask the customer for one accepted document." },
+          { "check_id": "PRIMARY_APPLICANT:BANK_STATEMENT", "status": "SATISFIED", "severity": "BLOCKING", "party_role": "PRIMARY_APPLICANT", "reason": "The bank statement is on file and verified." }
+        ] },
+      { "rule_id": "RULE-04", "name": "Conditional documents", "help": "Extra documents the case's details call for",
+        "explain": "Some documents depend on the case's details.", "status": "N/A", "passed": 0, "total": 0, "checks": [] },
+      { "rule_id": "RULE-05", "name": "Accepted document types", "help": "Only accepted document types count",
+        "explain": "Only the document types the policy accepts count.", "status": "PASS", "passed": 1, "total": 1,
+        "checks": [{ "check_id": "PRIMARY_APPLICANT:PAN:TYPE", "status": "SATISFIED", "severity": "BLOCKING", "party_role": "PRIMARY_APPLICANT", "reason": "The PAN is an accepted type." }] },
+      { "rule_id": "RULE-06", "name": "Period and freshness", "help": "Statement months, slip and ID dates",
+        "explain": "Checks dates: the bank statement covers enough months and is recent.", "status": "WARN", "passed": 0, "total": 1,
+        "checks": [{ "check_id": "PRIMARY_APPLICANT:BANK_STATEMENT:PERIOD", "status": "ACTION_REQUIRED", "severity": "NON_BLOCKING", "party_role": "PRIMARY_APPLICANT", "reason": "The bank statement covers 4 months; 6 are needed. Ask for the missing months." }] },
+      { "rule_id": "RULE-07", "name": "Supporting documents", "help": "Documents that must come with another",
+        "explain": "Some documents must come with another one, such as an ITR with its computation of income.", "status": "WARN", "passed": 0, "total": 1,
+        "checks": [{ "check_id": "PRIMARY_APPLICANT:ITR:COMPUTATION", "status": "ACTION_REQUIRED", "severity": "NON_BLOCKING", "party_role": "PRIMARY_APPLICANT", "reason": "The applicant gave the ITR; it needs its ITR computation." }] },
+      { "rule_id": "RULE-08", "name": "Reused documents", "help": "Earlier-stage documents reused, not asked again",
+        "explain": "Documents collected at an earlier stage are reused.", "status": "N/A", "passed": 0, "total": 0, "checks": [] },
+      { "rule_id": "RULE-09", "name": "Approved exceptions", "help": "Exceptions approved through maker-checker",
+        "explain": "When a document cannot be provided, a sales officer can raise an exception.", "status": "FAIL", "passed": 0, "total": 1,
+        "checks": [{ "check_id": "PRIMARY_APPLICANT:INCOME_PROOF", "status": "EXCEPTION_PENDING", "severity": "BLOCKING", "party_role": "PRIMARY_APPLICANT", "reason": "An exception for the income proof is awaiting approval. Wait for the authority's decision." }] },
+      { "rule_id": "RULE-10", "name": "Audit trail", "help": "Every check recorded for audit",
+        "explain": "Every check is saved with the policy version and the inputs it used.", "status": "PASS", "passed": 1, "total": 1,
+        "checks": [{ "check_id": "AUDIT", "status": "SATISFIED", "severity": "BLOCKING", "party_role": null, "reason": "The evaluation was recorded as EV-0001." }] },
+      { "rule_id": "RULE-11", "name": "File checks", "help": "File type and size of each uploaded file",
+        "explain": "Checks each UPLOADED file: its real type and its size.", "status": "PASS", "passed": 2, "total": 2,
+        "checks": [
+          { "check_id": "PRIMARY_APPLICANT:PAN:FILE", "status": "SATISFIED", "severity": "NON_BLOCKING", "party_role": "PRIMARY_APPLICANT", "reason": "The PAN file is a JPEG of 320 KB." },
+          { "check_id": "CO_APPLICANT:PAN:FILE", "status": "SATISFIED", "severity": "NON_BLOCKING", "party_role": "CO_APPLICANT", "reason": "The PAN file is a PDF of 1.2 MB." }
+        ] }
+    ],
+    "sections": [
+      { "id": "coverage", "name": "Document coverage", "help": "Is every required document on file, for every person?",
+        "rules": ["RULE-01", "RULE-02", "RULE-03", "RULE-04", "RULE-05"], "counts": { "PASS": 2, "WARN": 0, "FAIL": 2, "N/A": 1, "OFF": 0 } },
+      { "id": "quality", "name": "Validity and quality", "help": "Are the documents recent, complete and usable?",
+        "rules": ["RULE-06", "RULE-07", "RULE-08", "RULE-11"], "counts": { "PASS": 1, "WARN": 2, "FAIL": 0, "N/A": 1, "OFF": 0 } },
+      { "id": "controls", "name": "Approvals and data", "help": "Approved exceptions and the audit trail",
+        "rules": ["RULE-09", "RULE-10"], "counts": { "PASS": 1, "WARN": 0, "FAIL": 1, "N/A": 0, "OFF": 0 } }
+    ],
+    "documents": {
+      "people": ["PRIMARY_APPLICANT", "CO_APPLICANT"],
+      "rows": [
+        { "slot": "PAN", "label": "PAN", "cells": {
+          "PRIMARY_APPLICANT": { "state": "OK", "blocking": false, "reasons": ["The PAN is on file and verified."], "accepts": [], "rule_id": "RULE-03", "file": "JPEG · 320 KB" },
+          "CO_APPLICANT": { "state": "OK", "blocking": false, "reasons": ["The PAN is on file and verified."], "accepts": [], "rule_id": "RULE-02", "file": "PDF · 1.2 MB" } } },
+        { "slot": "ADDRESS_PROOF", "label": "Address proof", "cells": {
+          "PRIMARY_APPLICANT": { "state": "MISSING", "blocking": true, "reasons": ["The address proof is not on file. Ask the customer for one accepted document."], "accepts": ["AADHAAR", "PASSPORT", "VOTER_ID"], "rule_id": "RULE-03", "file": null },
+          "CO_APPLICANT": { "state": "OK", "blocking": false, "reasons": ["The address proof is on file and verified."], "accepts": [], "rule_id": "RULE-02", "file": null } } },
+        { "slot": "BANK_STATEMENT", "label": "Bank statement", "cells": {
+          "PRIMARY_APPLICANT": { "state": "MINOR", "blocking": false, "reasons": ["The bank statement is on file and verified.", "The bank statement covers 4 months; 6 are needed. Ask for the missing months."], "accepts": [], "rule_id": "RULE-03", "file": null } } },
+        { "slot": "INCOME_PROOF", "label": "Income proof", "cells": {
+          "PRIMARY_APPLICANT": { "state": "AWAITING_APPROVAL", "blocking": true, "reasons": ["An exception for the income proof is awaiting approval. Wait for the authority's decision."], "accepts": [], "rule_id": "RULE-09", "file": null } } },
+        { "slot": "SIGNATURE", "label": "Signature", "cells": {
+          "CO_APPLICANT": { "state": "REPLACE", "blocking": true, "reasons": ["The signature was rejected by verification. A new signature is needed."], "accepts": [], "rule_id": "RULE-02", "file": null } } }
+      ]
+    }
+  }
+}

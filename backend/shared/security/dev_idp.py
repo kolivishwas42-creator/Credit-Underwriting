@@ -1,0 +1,368 @@
+"""
+Dev-only local Identity Provider -- single process, same port as the main app.
+
+`shared/security/auth.py` is a resource server: it only VALIDATES tokens against
+a JWKS URL, it never issues them. In production that JWKS URL points at a
+real IdP (Keycloak, Auth0, Cognito, etc). This module plays the IdP role
+locally, for development only:
+
+    - generates an RSA keypair once per process
+    - exposes it as a JWKS document (GET /.well-known/jwks.json)
+    - issues short-lived RS256 access tokens shaped exactly the way
+      shared/security/auth.require_jwt expects
+    - issues and rotates refresh tokens, stored hashed in the case store's PostgreSQL database
+      (never the raw token), single-use: each refresh invalidates the token
+      used and returns a new one
+
+Nothing here is used to VALIDATE access tokens -- shared/security/auth.py still
+owns that entirely. This only stands in for the IdP side during development.
+
+DO NOT point JWT_JWKS_URL at this in a real deployment; swap in the real
+IdP's JWKS URL there and stop including auth_api's router.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import os
+import secrets
+import time
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, Iterable
+
+import jwt
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi import HTTPException, status
+from jwt.algorithms import RSAAlgorithm
+
+logger = logging.getLogger(__name__)
+
+_KEY_ID = "los-dev-key-1"
+
+ACCESS_TOKEN_TTL_SECONDS = int(os.getenv("DEV_IDP_ACCESS_TOKEN_TTL_SECONDS", "900"))  # 15 min
+REFRESH_TOKEN_TTL_SECONDS = int(os.getenv("DEV_IDP_REFRESH_TOKEN_TTL_SECONDS", "604800"))  # 7 days
+
+
+
+class _DevKeyPair:
+    """One RSA keypair, generated once and held for the life of the process."""
+
+    def __init__(self) -> None:
+        self.private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        self.public_key = self.private_key.public_key()
+        self.private_pem = self.private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+
+
+@lru_cache(maxsize=1)
+def _keypair() -> _DevKeyPair:
+    return _DevKeyPair()
+
+
+#: The keypair checked into `auth_keys/`, which `make_fos_token.py`
+#: signs with and `auth_provider_dev.py` serves. Its key id is fixed
+#: by those two and is not ours to choose.
+_SHARED_KEY_ID = os.getenv("JWT_KEY_ID", "los-rs256-1")
+_SHARED_PUBLIC_KEY = Path(
+    os.getenv("JWT_PUBLIC_KEY_PATH")
+    or Path(__file__).resolve().parents[2] / "auth_keys"
+    / "jwt_signing_public.pem"
+)
+
+
+def _shared_jwk() -> dict[str, Any] | None:
+    """
+    The on-disk development public key, as a JWK. None if absent.
+
+    WHY THIS IS PUBLISHED HERE. Two things in this repository mint
+    development tokens and they were signing with different keys.
+    `make_fos_token.py` uses `auth_keys/jwt_signing_private.pem`,
+    stamped `los-rs256-1`; this module generates a fresh RSA key in
+    memory every time the process starts, stamped `los-dev-key-1`.
+    The verifier resolves a key BY `kid` from whatever JWKS it is
+    pointed at, so a token from the script hit an API serving only
+    the in-memory key and came back "Unable to resolve JWT signing
+    key" -- correct behaviour, from a configuration that could not
+    work.
+
+    Publishing both is the smallest fix that makes them agree. A
+    JWKS is a SET of keys and `kid` selects one, so nothing is
+    weakened: each token is still verified against the one public
+    key matching the private key that signed it, and an unknown kid
+    is still refused.
+
+    PUBLIC KEY ONLY. The private half is never read here -- this
+    module signs with its own in-memory key and nothing else.
+
+    ABSENT IS FINE. A checkout without `auth_keys/` publishes just
+    the in-memory key, exactly as before.
+    """
+    try:
+        pem = _SHARED_PUBLIC_KEY.read_bytes()
+    except OSError:
+        return None
+
+    try:
+        jwk = json.loads(RSAAlgorithm.to_jwk(
+            serialization.load_pem_public_key(pem)))
+    except Exception:                                # pragma: no cover
+        logger.warning("Could not read the development public key at %s.",
+                       _SHARED_PUBLIC_KEY.name)
+        return None
+
+    jwk["kid"] = _SHARED_KEY_ID
+    jwk["use"] = "sig"
+    jwk["alg"] = "RS256"
+    return jwk
+
+
+#: Environments in which a development identity provider may ever run.
+_DEV_ENVIRONMENTS = frozenset({"development", "dev", "local", "test"})
+
+
+def dev_idp_enabled() -> bool:
+    """
+    Whether this service may mount its built-in login / token endpoints.
+
+    BOTH CONDITIONS, AND FAIL CLOSED:
+      LOS_DEV_IDP_ENABLED=true   an explicit opt-in (default: off)
+      ENVIRONMENT in development/dev/local/test
+                                 an unset ENVIRONMENT counts as production
+
+    A production deployment that sets the flag by mistake still gets no
+    token issuer: the environment check refuses it, and says so in the log.
+    """
+    flag = (os.getenv("LOS_DEV_IDP_ENABLED") or "").strip().lower()
+    if flag not in {"1", "true", "yes", "on"}:
+        return False
+    environment = (os.getenv("ENVIRONMENT") or "production").strip().lower()
+    if environment not in _DEV_ENVIRONMENTS:
+        logging.getLogger(__name__).error(
+            "LOS_DEV_IDP_ENABLED is set but ENVIRONMENT=%s is not a "
+            "development environment; the development identity provider "
+            "stays disabled.", environment)
+        return False
+    return True
+
+
+def get_jwks() -> dict[str, Any]:
+    """The JWKS document that JWT_JWKS_URL should resolve to."""
+    jwk = json.loads(RSAAlgorithm.to_jwk(_keypair().public_key))
+    jwk["kid"] = _KEY_ID
+    jwk["use"] = "sig"
+    jwk["alg"] = "RS256"
+
+    keys = [jwk]
+    shared = _shared_jwk()
+    if shared and shared["kid"] != _KEY_ID:
+        keys.append(shared)
+    return {"keys": keys}
+
+
+#: claims a caller may add to an access token: shown to the user, never read for scope or authorization
+_DISPLAY_CLAIMS = frozenset({"stage"})
+
+
+def issue_access_token(
+    *,
+    subject: str,
+    issuer: str,
+    audience: str,
+    scopes: Iterable[str] | None = None,
+    roles: Iterable[str] | None = None,
+    extra_claims: dict[str, Any] | None = None,
+) -> str:
+    """Issue a short-lived RS256 access token that require_jwt will accept."""
+    now = int(time.time())
+
+    # role: pehla role lo, warna default "fos"
+    role = next(iter(roles), "fos") if roles else "fos"
+
+    payload: dict[str, Any] = {
+        "sub": subject,
+        "iss": issuer,
+        "aud": audience,
+        "iat": now,
+        "nbf": now,
+        "exp": now + ACCESS_TOKEN_TTL_SECONDS,
+        "jti": f"{role}-{now}",          # ← "fos-1790246656" style
+        "role": role,                    # ← singular "role", not "roles"
+    }
+
+    if scopes:
+        payload["scope"] = " ".join(scopes)
+    # the stage chosen at login (MASTER SPEC 15.1): display-only, so ONLY the allowlisted keys are signed in --
+    # a scope / role / identity key can never ride in here
+    for key, value in (extra_claims or {}).items():
+        if key in _DISPLAY_CLAIMS and key not in payload and value not in (None, ""):
+            payload[key] = value
+
+    return jwt.encode(
+        payload,
+        _keypair().private_pem,
+        algorithm="RS256",
+        headers={"kid": _KEY_ID},
+    )
+
+
+# ============================================================================
+# REFRESH TOKENS
+#
+# The refresh token itself is a random opaque string, never a JWT. Only its
+# SHA-256 hash is stored, so reading the database doesn't hand out usable
+# tokens. Each refresh call revokes the token it was given and issues a new
+# one (rotation) -- reusing an old, already-rotated token is rejected, which
+# is what catches a stolen refresh token being replayed after the legitimate
+# client has already rotated past it.
+# ============================================================================
+
+def _psycopg_dsn() -> str:
+    """
+    Convert the LOS store connection string into a PostgreSQL/libpq DSN
+    understood by psycopg.
+
+    The existing LOS_STORE_DSN may be in .NET/Npgsql format:
+
+        Host=localhost;Port=5432;Database=los;Username=postgres;Password=...
+
+    while psycopg expects:
+
+        host=localhost port=5432 dbname=los user=postgres password=...
+
+    Keep this conversion local to the dev IdP so the working case-store
+    configuration is not changed.
+    """
+    from shared.store import _embedded_dsn, store_dsn
+
+    raw = (store_dsn() or "").strip()
+
+    if not raw:
+        return _embedded_dsn()
+
+    # Already a PostgreSQL URI.
+    if raw.startswith(("postgresql://", "postgres://")):
+        return raw
+
+    parts: dict[str, str] = {}
+
+    for item in raw.split(";"):
+        item = item.strip()
+
+        if not item or "=" not in item:
+            continue
+
+        key, value = item.split("=", 1)
+        parts[key.strip().lower()] = value.strip().strip('"')
+
+    return " ".join(
+        f"{key}={value}"
+        for key, value in (
+            ("host", parts.get("host", "localhost")),
+            ("port", parts.get("port", "5432")),
+            ("dbname", parts.get("database", parts.get("dbname", ""))),
+            ("user", parts.get("username", parts.get("user", ""))),
+            ("password", parts.get("password", "")),
+        )
+        if value != ""
+    )
+
+
+def _db():
+    """
+    The refresh-token table lives in the SAME PostgreSQL database as the
+    case store.
+
+    Dev-only: this module never runs in production.
+    """
+    import psycopg
+
+    conn = psycopg.connect(_psycopg_dsn())
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS dev_idp_refresh_tokens (
+            token_hash TEXT PRIMARY KEY,
+            subject TEXT NOT NULL,
+            issued_at BIGINT NOT NULL,
+            expires_at BIGINT NOT NULL,
+            revoked INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    conn.commit()
+    return conn
+
+
+
+def _hash_refresh_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def issue_refresh_token(subject: str) -> str:
+    token = secrets.token_urlsafe(48)
+    now = int(time.time())
+    conn = _db()
+    try:
+        conn.execute(
+            "INSERT INTO dev_idp_refresh_tokens (token_hash, subject, issued_at, expires_at, revoked) "
+            "VALUES (%s, %s, %s, %s, 0)",
+            (_hash_refresh_token(token), subject, now, now + REFRESH_TOKEN_TTL_SECONDS),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return token
+
+
+def rotate_refresh_token(old_token: str) -> tuple[str, str]:
+    """Validates and revokes old_token, returns (subject, new_refresh_token)."""
+    token_hash = _hash_refresh_token(old_token)
+    now = int(time.time())
+    conn = _db()
+    try:
+        # ONE ATOMIC STATEMENT: of two concurrent refreshes with the same token,
+        # exactly one revokes it and gets a row back (single-use under a race).
+        row = conn.execute(
+            "UPDATE dev_idp_refresh_tokens SET revoked = 1 "
+            "WHERE token_hash = %s AND revoked = 0 AND expires_at > %s RETURNING subject",
+            (token_hash, now),
+        ).fetchone()
+        conn.commit()
+        if not row:
+            known = conn.execute("SELECT expires_at, revoked FROM dev_idp_refresh_tokens WHERE token_hash = %s",
+                                 (token_hash,)).fetchone()
+            if not known:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+            if known[1]:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token already used")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token expired")
+        subject = row[0]
+    finally:
+        conn.close()
+
+    return subject, issue_refresh_token(subject)
+
+
+def revoke_refresh_token(token: str) -> str | None:
+    """Used by /logout. Silently no-ops if the token doesn't exist. Returns the token's subject, when known."""
+    conn = _db()
+    try:
+        row = conn.execute("SELECT subject FROM dev_idp_refresh_tokens WHERE token_hash = %s",
+                           (_hash_refresh_token(token),)).fetchone()
+        conn.execute(
+            "UPDATE dev_idp_refresh_tokens SET revoked = 1 WHERE token_hash = %s",
+            (_hash_refresh_token(token),),
+        )
+        conn.commit()
+        if row is None:
+            return None
+        return str(row["subject"] if hasattr(row, "keys") else row[0])
+    finally:
+        conn.close()

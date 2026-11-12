@@ -1,0 +1,17 @@
+Case number: UI-CHECK
+Applicant names: Riya Shinde, ZZQPC1000Q
+Owner/Transferor Names: Unrelated Person Kumar
+Property Address: Z-999, synthetic address
+District/State: Nowhere, Maharashtra
+Debtor Based Search
+Results : 1 record found
+Borrower name:
+Unrelated Person Kumar
+Charge details
+City/Town/Village: Nowhere
+State/UT: Maharashtra
+Pin Code: 999999
+House/Flat Number/Unit No: Z-999
+Security Interest ID: SI-UI
+Satisfaction Status: Not Satisfied
+Holder details

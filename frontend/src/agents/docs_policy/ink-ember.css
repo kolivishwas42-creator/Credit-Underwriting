@@ -1,0 +1,179 @@
+/* INK & EMBER -- DESIGN.md. Linked after styles.css, so it wins. It re-points the variables styles.css reads at the Ink &
+   Ember tokens and flattens the dark-navy rail, teal gradients, glows and lifts. Ink creates (Check button), ember marks
+   (focus, the active rule, selected count), indigo informs, status in its own pastel family. Light and dark follow the
+   system; the existing toggle (theme.js) still overrides it. The page stays one dense screen, so the body keeps 14px. */
+:root {
+  --rail: #ffffff; --rail-2: #f4f4f5; --rail-line: #eaeaec; --rail-text: #3f3f46; --rail-muted: #71717a;
+  --bg: #f7f7f8; --surface: #ffffff; --surface-2: #f4f4f5; --line: #eaeaec; --line-2: #d4d4d8;
+  --text: #18181b; --text-2: #3f3f46; --muted: #71717a;
+  --brand: #1E40AF; --brand-2: #1E3A8A; --brand-soft: #DBEAFE; --brand-tint: #EFF6FF; --brand-ink: #1E40AF;
+  --link: #4f5ac7;
+  --ok: #177334; --ok-soft: #e7f4eb; --ok-line: #c5e6cf; --ok-fill: #1e8e3e;
+  --warn: #92400E; --warn-soft: #F5E7DD; --warn-line: #f2dcae; --warn-fill: #B45309;
+  --bad: #b03535; --bad-soft: #fdecec; --bad-line: #f5c6c6; --bad-fill: #d14343;
+  --na: #71717a; --na-soft: #f4f4f5; --na-line: #eaeaec;
+  --co: #71717a; --co-soft: #f4f4f5;
+  --appr: #4148a8; --appr-soft: #eef0fc;
+  --on-tone: #ffffff;
+  --row-base: #ffffff; --docs-bg: transparent; --row-shadow: none;
+  --ok-row-a: #e7f4eb; --ok-row-line: #c5e6cf; --ok-ink: #177334; --ok-icon-a: #1e8e3e; --ok-icon-b: #1e8e3e; --ok-icon-bg: #e7f4eb;
+  --bad-row-a: #fdecec; --bad-row-line: #f5c6c6; --bad-ink: #b03535; --bad-icon-a: #d14343; --bad-icon-b: #d14343; --bad-icon-bg: #fdecec;
+  --warn-row-a: #F5E7DD; --warn-row-line: #f2dcae; --warn-ink: #92400E; --warn-icon-a: #B45309; --warn-icon-b: #B45309; --warn-icon-bg: #F5E7DD;
+  --ink-fill: #18181b; --ink-fill-hover: #27272a; --ink-fill-pressed: #09090b; --on-ink: #ffffff; --ink-fill-disabled: #d4d4d8;
+  --band: #18181b; --scrim: rgba(24, 24, 27, .5);
+  --shadow: none; --lift: none; --e-sm: 0 1px 3px rgba(24, 24, 27, .06); --e-lg: 0 12px 32px rgba(24, 24, 27, .16);
+  --radius: 16px;
+  --font-display: "Space Grotesk", "Inter", -apple-system, "Segoe UI", sans-serif;
+  --font: "Lexend", "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --rail: #141416; --rail-2: #1d1d20; --rail-line: #27272a; --rail-text: #d4d4d8; --rail-muted: #a1a1aa;
+    --bg: #0c0c0d; --surface: #141416; --surface-2: #1d1d20; --line: #27272a; --line-2: #3f3f46;
+    --text: #fafafa; --text-2: #d4d4d8; --muted: #a1a1aa;
+    --brand: #60A5FA; --brand-2: #93C5FD; --brand-soft: #172554; --brand-tint: #0F1D3A; --brand-ink: #93C5FD;
+    --link: #8b94e8;
+    --ok: #6fcb8d; --ok-soft: #102416; --ok-line: #1f4a2c; --ok-fill: #3fa65c;
+    --warn: #e8bc63; --warn-soft: #2a2010; --warn-line: #4a3a17; --warn-fill: #d9a13a;
+    --bad: #f09090; --bad-soft: #2e1818; --bad-line: #5a2a2a; --bad-fill: #e06a6a;
+    --na: #a1a1aa; --na-soft: #1d1d20; --na-line: #27272a;
+    --co: #a1a1aa; --co-soft: #1d1d20;
+    --appr: #a3aaf0; --appr-soft: #1d2040;
+    --on-tone: #18181b;
+    --row-base: #141416; --docs-bg: transparent; --row-shadow: none;
+    --ok-row-a: #102416; --ok-row-line: #1f4a2c; --ok-ink: #6fcb8d; --ok-icon-a: #3fa65c; --ok-icon-b: #3fa65c; --ok-icon-bg: #102416;
+    --bad-row-a: #2e1818; --bad-row-line: #5a2a2a; --bad-ink: #f09090; --bad-icon-a: #e06a6a; --bad-icon-b: #e06a6a; --bad-icon-bg: #2e1818;
+    --warn-row-a: #2a2010; --warn-row-line: #4a3a17; --warn-ink: #e8bc63; --warn-icon-a: #d9a13a; --warn-icon-b: #d9a13a; --warn-icon-bg: #2a2010;
+    --ink-fill: #fafafa; --ink-fill-hover: #ffffff; --ink-fill-pressed: #e4e4e7; --on-ink: #18181b; --ink-fill-disabled: #3f3f46;
+    --band: #1d1d20; --scrim: rgba(0, 0, 0, .7);
+    --shadow: none; --lift: none; --e-sm: 0 1px 3px rgba(0, 0, 0, .5); --e-lg: 0 12px 32px rgba(0, 0, 0, .65);
+    color-scheme: dark;
+  }
+}
+/* the manual toggle still wins in both directions */
+:root[data-theme="dark"] {
+  --rail: #141416; --rail-2: #1d1d20; --rail-line: #27272a; --rail-text: #d4d4d8; --rail-muted: #a1a1aa;
+  --bg: #0c0c0d; --surface: #141416; --surface-2: #1d1d20; --line: #27272a; --line-2: #3f3f46;
+  --text: #fafafa; --text-2: #d4d4d8; --muted: #a1a1aa;
+  --brand: #60A5FA; --brand-2: #93C5FD; --brand-soft: #172554; --brand-tint: #0F1D3A; --brand-ink: #93C5FD;
+  --link: #8b94e8;
+  --ok: #6fcb8d; --ok-soft: #102416; --ok-line: #1f4a2c; --ok-fill: #3fa65c;
+  --warn: #e8bc63; --warn-soft: #2a2010; --warn-line: #4a3a17; --warn-fill: #d9a13a;
+  --bad: #f09090; --bad-soft: #2e1818; --bad-line: #5a2a2a; --bad-fill: #e06a6a;
+  --na: #a1a1aa; --na-soft: #1d1d20; --na-line: #27272a;
+  --co: #a1a1aa; --co-soft: #1d1d20;
+  --appr: #a3aaf0; --appr-soft: #1d2040;
+  --on-tone: #18181b;
+  --row-base: #141416; --docs-bg: transparent; --row-shadow: none;
+  --ok-row-a: #102416; --ok-row-line: #1f4a2c; --ok-ink: #6fcb8d; --ok-icon-a: #3fa65c; --ok-icon-b: #3fa65c; --ok-icon-bg: #102416;
+  --bad-row-a: #2e1818; --bad-row-line: #5a2a2a; --bad-ink: #f09090; --bad-icon-a: #e06a6a; --bad-icon-b: #e06a6a; --bad-icon-bg: #2e1818;
+  --warn-row-a: #2a2010; --warn-row-line: #4a3a17; --warn-ink: #e8bc63; --warn-icon-a: #d9a13a; --warn-icon-b: #d9a13a; --warn-icon-bg: #2a2010;
+  --ink-fill: #fafafa; --ink-fill-hover: #ffffff; --ink-fill-pressed: #e4e4e7; --on-ink: #18181b; --ink-fill-disabled: #3f3f46;
+  --band: #1d1d20; --scrim: rgba(0, 0, 0, .7);
+  --shadow: none; --lift: none; --e-sm: 0 1px 3px rgba(0, 0, 0, .5); --e-lg: 0 12px 32px rgba(0, 0, 0, .65);
+  color-scheme: dark;
+}
+
+/* ---- base */
+body { font: 14px/1.5 var(--font); letter-spacing: -.006em; }
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 8px; }
+h1, h2 { font-family: var(--font-display); text-wrap: balance; }
+.welcome h1 { font-size: 32px; line-height: 40px; font-weight: 700; letter-spacing: -.03em; }
+.names h1 { font-size: 24px; line-height: 32px; font-weight: 700; letter-spacing: -.02em; }
+.drawer-head h2 { font-size: 24px; line-height: 32px; font-weight: 700; letter-spacing: -.02em; }
+.eyebrow, .drawer-kicker, .search-label, .rsec-head h3, .list-title, .p-role, .next .k {
+  font-family: var(--font-display); font-weight: 600; letter-spacing: .09em; }
+.eyebrow, .drawer-kicker { color: var(--muted); }
+.welcome p, .drawer-help, .memo-text { max-width: 66ch; }
+.link, .copy:hover, .ghost-btn:hover { color: var(--link); }
+.ghost-btn:hover { border-color: var(--line-2); background: var(--surface-2); }
+.main { background: none; }
+
+/* ---- rail: a white surface with a 1px rule; the active rule lifts with an ember mark */
+.rail { background: var(--rail); border-right: 1px solid var(--rail-line); }
+.logo { background: var(--band); box-shadow: none; border-radius: 8px; color: #fff; }
+.brand-title { color: var(--text); font-family: var(--font-display); font-weight: 700; }
+.theme-btn { border-radius: 8px; background: var(--surface); color: var(--text-2); }
+.theme-btn:hover { border-color: var(--line-2); color: var(--text); background: var(--surface-2); }
+.search-box input { height: 44px; padding-top: 0; padding-bottom: 0; background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 8px; }
+.search-box input:hover { border-color: var(--line-2); }
+.search-box input:focus { border-color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); }
+.search-box kbd { border-radius: 6px; }
+.btn-brand { background: var(--cu-action, #172554); color: var(--on-ink); box-shadow: none; border-radius: 8px; height: 44px; padding: 0 16px; font-weight: 600; }
+.btn-brand:hover:not(:disabled) { background: var(--ink-fill-hover); }
+.btn-brand:active:not(:disabled) { background: var(--ink-fill-pressed); transform: none; }
+.btn-brand:disabled { opacity: 1; background: var(--ink-fill-disabled); color: var(--surface); cursor: not-allowed; }
+.search-error { color: var(--bad); background: var(--bad-soft); border: 0; border-radius: 8px; }
+.rsec-head .t.clear { color: var(--ok); }
+.rule { border-radius: 8px; transition: background .12s ease; }
+.rule:hover { background: var(--rail-2); }
+.rule.active { background: var(--surface); box-shadow: inset 3px 0 0 var(--brand), inset 0 0 0 1px var(--line), var(--e-sm); color: var(--text); font-weight: 600; }
+.rule.bad .n { color: var(--bad); } .rule.warn .n { color: var(--warn); } .rule.ok .n { color: var(--ok); }
+.recent-item { border-radius: 8px; }
+.recent-item:hover, .recent-item.active { background: var(--rail-2); }
+
+/* ---- cards: bordered, no shadow, no gradient top bar */
+.person, .card, .banner, .count, .gate { box-shadow: none; }
+.person, .person.co { background: var(--surface); border-top: 1px solid var(--line); padding-top: 0; }
+.avatar, .person.co .avatar { background: var(--surface-2); color: var(--text); border-radius: 8px; }
+.job { border-radius: 6px; }
+.lc { box-shadow: none; }
+.lc.bad { border-top-color: var(--bad-fill); } .lc.warn { border-top-color: var(--warn-fill); } .lc.ok { border-top-color: var(--ok-fill); }
+.names .co { font-family: var(--font); color: var(--muted); }
+.p-name { font-weight: 600; }
+
+/* ---- the route banner: a status pastel with a flat status tile */
+.banner { backdrop-filter: none; border-radius: 16px; }
+.banner .ico { background: var(--tone-fill, var(--tone)); box-shadow: none; border-radius: 12px; color: var(--on-tone); }
+.banner.ok { --tone-fill: var(--ok-fill); } .banner.warn { --tone-fill: var(--warn-fill); } .banner.bad { --tone-fill: var(--bad-fill); }
+.banner .label { font-family: var(--font-display); font-weight: 700; letter-spacing: -.02em; }
+.count { border-radius: 12px; transition: border-color .12s ease, background .12s ease; }
+.count:hover { transform: none; box-shadow: none; border-color: var(--line-2); }
+.count.on { border-color: var(--line); background: var(--brand-tint); box-shadow: inset 3px 0 0 var(--brand); }
+.count b { font-family: var(--font-display); font-weight: 700; letter-spacing: -.03em; }
+.count.bad { border-top: 1px solid var(--line); box-shadow: inset 0 3px 0 var(--bad-fill); }
+.count.warn { border-top: 1px solid var(--line); box-shadow: inset 0 3px 0 var(--warn-fill); }
+.count.ok { border-top: 1px solid var(--line); box-shadow: inset 0 3px 0 var(--ok-fill); }
+.count.approval { border-top: 1px solid var(--line); box-shadow: inset 0 3px 0 var(--appr); }
+.count.on.bad { box-shadow: inset 0 3px 0 var(--bad-fill), inset 3px 0 0 var(--brand); }
+.count.on.warn { box-shadow: inset 0 3px 0 var(--warn-fill), inset 3px 0 0 var(--brand); }
+.count.on.ok { box-shadow: inset 0 3px 0 var(--ok-fill), inset 3px 0 0 var(--brand); }
+.count.on.approval { box-shadow: inset 0 3px 0 var(--appr), inset 3px 0 0 var(--brand); }
+.gate { border-radius: 12px; }
+
+/* ---- document rows: flat status pastel, a status rule on the left, a tile with the mark */
+.doc.ok, .doc.warn, .doc.bad { background: var(--surface); }
+.doc.ok { background: var(--ok-soft); } .doc.warn { background: var(--warn-soft); } .doc.bad { background: var(--bad-soft); }
+.doc { border-radius: 12px; animation: none; transition: border-color .12s ease; }
+.doc:hover { transform: none; }
+.doc.ok:hover, .doc.warn:hover, .doc.bad:hover { box-shadow: none; border-color: var(--line-2); }
+.doc .st { border-radius: 8px; }
+.bar { height: 6px; background: var(--surface-2); }
+.bar .ok { background: var(--ok-fill); } .bar .warn { background: var(--warn-fill); } .bar .bad { background: var(--bad-fill); }
+
+/* ---- chips: 6px, status pastel, always with a word */
+.src, .job { border-radius: 6px; }
+.src { background: var(--info-soft, var(--appr-soft)); color: var(--appr); font-weight: 600; }
+.src.rules { background: var(--surface-2); color: var(--text-2); }
+.tag { font-weight: 600; }
+.dot.ok { background: var(--ok-fill); } .dot.warn { background: var(--warn-fill); } .dot.bad { background: var(--bad-fill); }
+.line .edge.ok { background: var(--ok-fill); } .line .edge.warn { background: var(--warn-fill); } .line .edge.bad { background: var(--bad-fill); }
+
+/* ---- the brief */
+.memo-text { background: none; border-left: 3px solid var(--text); border-radius: 0; padding: 0 0 0 12px; line-height: 1.7; }
+.next { background: var(--band); box-shadow: none; color: #fff; border-radius: 12px; }
+.next .k { color: #d4d4d8; } .next .a { color: #d4d4d8; }
+.mini.go:hover { background: var(--surface-2); }
+
+/* ---- drawer and overlays */
+.scrim { background: var(--scrim); backdrop-filter: none; }
+.drawer { border-radius: 16px 0 0 16px; box-shadow: var(--e-lg); }
+.icon-btn { border-radius: 8px; }
+.drawer-stat { border-radius: 8px; }
+.line { border-radius: 8px; }
+.line:hover { transform: none; }
+.toast { background: var(--cu-action, #172554); color: var(--on-ink); border-radius: 8px; box-shadow: var(--e-lg); }
+@media (max-width: 960px) { .drawer { border-radius: 0; } }
+@media (prefers-reduced-motion: reduce) { * { transition-duration: .01ms !important; animation-duration: .01ms !important; } }

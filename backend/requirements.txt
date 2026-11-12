@@ -1,0 +1,168 @@
+# =============================================================================
+# LOS Agentic AI -- RUNTIME dependencies
+#
+# Everything needed to import the application and serve
+# POST /api/v1/los/process. Test-only packages live in requirements-dev.txt.
+#
+#     python -m venv .venv
+#     .venv\Scripts\activate          (Windows)   source .venv/bin/activate (Linux)
+#     python -m pip install --upgrade pip
+#     pip install -r requirements.txt
+#
+# Audited against every `import` in app/ and main.py, not against a developer
+# machine's site-packages. Verified by installing this file into an empty
+# virtual environment and starting the service from it.
+#
+# TWO SYSTEM BINARIES ARE NOT PYTHON PACKAGES AND ARE NOT INSTALLED BY PIP:
+#
+#     Tesseract OCR  -- used by pytesseract for name word-spacing
+#                       (DOCUMENT_NAME_SPACING=true). Without it names come
+#                       back unspaced, e.g. LAXMISANTOSHGUPTA.
+#     Poppler        -- used by pdf2image to rasterise scanned PDFs. Without
+#                       it a scanned bank statement / ITR yields no OCR text.
+#
+# Both degrade rather than crash: the service starts and serves without
+# either. See docs/QUICKSTART.md for installation.
+#
+# The language model is also not a Python dependency. Ollama is a separate
+# service and `ollama pull qwen2.5:3b` is a separate step -- see
+# docs/API_HANDOVER.md.
+# =============================================================================
+
+
+# ── Web framework ────────────────────────────────────────────────────────────
+# python-multipart is REQUIRED, not optional: the canonical endpoint is
+# multipart/form-data and FastAPI raises at import time without it.
+fastapi>=0.115,<1
+uvicorn[standard]>=0.34,<1
+python-multipart>=0.0.20,<1
+pydantic>=2.9,<3
+
+# ── HTTP client ──────────────────────────────────────────────────────────────
+# shared/fraud_risk/summary.py talks to Ollama directly; fastapi.testclient
+# needs it too.
+httpx>=0.28,<1
+
+# ── Configuration ────────────────────────────────────────────────────────────
+python-dotenv>=1.0.1,<2
+PyYAML>=6.0.2,<7
+
+# ── Authentication ───────────────────────────────────────────────────────────
+# RS256 JWT verified against a JWKS endpoint. PyJWT does RS256 only when
+# cryptography is present, so it is a direct dependency rather than a hopeful
+# transitive one.
+PyJWT>=2.10,<3
+cryptography>=44,<47
+
+# ── Agent framework and orchestration ────────────────────────────────────────
+# `agent-framework` (the meta-package) is deliberately NOT used: it resolves to
+# agent-framework-core[all], which drags in Azure, AWS/boto3, Anthropic,
+# OpenAI, Gemini, Mistral, Redis, Qdrant and a dozen more provider SDKs this
+# service never imports -- hundreds of megabytes for four symbols.
+#
+# What is actually imported:
+#   agent_framework        -> Agent, MCPStdioTool, Message, ChatOptions,
+#                             WorkflowBuilder            (agent-framework-core)
+#   agent_framework.ollama -> OllamaChatClient         (agent-framework-ollama)
+#
+# agent-framework-ollama is pinned exactly because its only published builds
+# are pre-releases; a range would make pip skip it unless given --pre.
+agent-framework-core>=1.13,<2
+agent-framework-ollama==1.0.0b260813
+langgraph>=1.0,<2
+mcp>=1.12,<2
+
+# ── Case store ───────────────────────────────────────────────────────────────
+# PostgreSQL is the ONLY case store (shared/store/postgres_repo.py): psycopg 3 for
+# the driver, psycopg-pool for the connection pool (imported at startup -- the
+# service does not start without it). Production needs LOS_STORE_DSN and
+# LOS_DATA_ENCRYPTION_KEY. Development without a DSN uses an embedded server
+# from `pgserver` (requirements-dev.txt).
+psycopg[binary]>=3.1,<4
+# the ORM of fraud_screening and property_valuation (added 2026-11-02; shared/db/sqla.py)
+SQLAlchemy>=2.0,<3
+psycopg-pool>=3.2,<4
+# the eligibility data provider + runs store (eligibility/providers.py, runs.py)
+psycopg2-binary>=2.9,<3
+
+# ── Retrieval (RAG) ──────────────────────────────────────────────────────────
+# Qdrant is the vector store for case-derived text and process knowledge
+# (app/knowledge/vector_store.py). It was imported but never declared: without
+# it every retrieval failed as "no evidence". Embedded / in-memory mode needs
+# no server; QDRANT_URL points at one.
+qdrant-client>=1.12,<2
+
+# ── Observability ────────────────────────────────────────────────────────────
+# OpenTelemetry is now runtime-wired (shared/observability/tracing.py, called at
+# startup; spans for request, auth, MCP, RAG, JEV, Qwen, guardrail, validator).
+# Export is OTLP to an OTEL / ADOT collector (-> X-Ray / CloudWatch); off
+# unless OTEL_ENABLED=true. CloudWatch metrics use EMF log lines (no AWS SDK)
+# or, in CLOUDWATCH_MODE=api, boto3 (below).
+opentelemetry-api>=1.27,<2
+opentelemetry-sdk>=1.27,<2
+opentelemetry-exporter-otlp-proto-grpc>=1.27,<2
+# CloudWatch metrics in CLOUDWATCH_MODE=api (shared/observability/cloudwatch.py,
+# imported lazily; the default `emf` mode needs no AWS SDK). Credentials come
+# only from the standard AWS chain (instance/task role, environment, profile)
+# -- never from this repository's configuration.
+boto3>=1.34,<2
+
+# ── OCR ──────────────────────────────────────────────────────────────────────
+# rapidocr-onnxruntime is the DEFAULT engine (DOCUMENT_OCR_ENGINE=rapidocr) and
+# was the single most serious omission from the previous file: without it the
+# service starts and then fails every extraction.
+#
+# Pinned exactly. Recognition output is the input to deterministic field
+# extraction, so a recogniser version bump changes extracted values -- that is
+# a behaviour change, not a patch upgrade.
+#
+# NOTE: rapidocr-onnxruntime itself depends on `opencv-python`, so that
+# (non-headless) build is installed transitively even though the application
+# imports cv2 through the headless one. Both provide the same `cv2` module.
+rapidocr-onnxruntime==1.4.4
+# Bank passbook OCR (app/agents/passbook/engine.py): PP-OCRv6 small, bundled in the package (offline). Chosen on
+# measured accuracy, 2026-10-15: passbook values 99.8 % vs 97.1 % for PP-OCRv4. Separate package name; both coexist.
+rapidocr==3.10.0
+onnxruntime>=1.19,<2
+opencv-python-headless>=4.8,<6
+numpy>=1.26,<3
+pillow>=10,<14
+
+# Word-box pass that restores spacing inside names. Needs the Tesseract binary.
+pytesseract>=0.3.13,<0.4
+
+# ── PDF ──────────────────────────────────────────────────────────────────────
+# pdfplumber  -- bank statement table/cell text
+# pypdf       -- page counts and text layer
+# pymupdf     -- sale deed text extraction
+# pdf2image   -- rasterises scanned PDFs for OCR. Needs the Poppler binary.
+pdfplumber>=0.11,<0.12
+pypdf>=4,<7
+pymupdf>=1.24,<2
+pdf2image>=1.17,<2
+
+
+# ── Language detection (optional) ────────────────────────────────────────────
+# lingua-language-detector -- tells Marathi from Hindi in Devanagari text that
+#                             carries no marker word (shared/applicant/
+#                             language.py, languages.yaml `detector`). Offline,
+#                             ~170 MB wheel; without it the marker words decide
+#                             alone. LANGUAGE_DETECTOR=off disables it.
+lingua-language-detector>=2.0,<3
+
+# ── Chat downloads and handoff note (2026-10-09: imported by the app, were missing here) ──
+# openpyxl      -- the chat's Excel download / import (copilot/capabilities/exports.py, importer.py); without it
+#                  the frontend's "Download: Excel" link fails
+# markdown-it-py -- the CPA handoff note rendered to HTML (copilot/answering/handoff_note.py)
+# pywin32       -- local Windows SAPI text-to-speech only (app/tts/local_server.py); never installed elsewhere
+openpyxl>=3.1,<4
+markdown-it-py>=3.0,<5
+pywin32>=306; sys_platform == "win32"
+
+# ── REMOVED, with the reason ─────────────────────────────────────────────────
+#
+# agent-framework          -> replaced by agent-framework-core +
+#                             agent-framework-ollama (see above).
+#
+# (opentelemetry-api / -sdk were listed here as removed; they are direct
+#  dependencies again now that tracing is runtime-wired -- see Observability.)

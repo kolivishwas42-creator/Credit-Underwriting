@@ -1,0 +1,277 @@
+# Property valuation: the 22 retained rules (seed / defaults). On first use each rule missing from the
+# property_valuation_rule_configs table is inserted from here; after that the table is the live configuration
+# (edited from the Rule configuration screen / PUT /rules/{rule_key}).
+rules:
+  RULE_1:
+    original_id: PROP-012
+    name: Registration Completeness
+    severity: MINOR
+    enabled: false
+    sequence: 1
+    fields:
+      registered_at: Registered At
+      registration_number: Registration Number
+      registration_date: Registration Date
+      transaction_type: Transaction Type
+  RULE_2:
+    original_id: PROP-013
+    name: Owner Name Consistency
+    severity: CRITICAL
+    enabled: true
+    sequence: 2
+    fields:
+      owner_first_name: Property Owner First Name
+      owner_middle_name: Property Owner Middle Name
+      owner_last_name: Property Owner Last Name
+      current_property_owner: Current property owner
+      first_party_names: First Party Names
+      second_party_names: Second Party Names
+  RULE_3:
+    original_id: PROP-014
+    name: Applicant Versus Owner Comparison
+    severity: MAJOR
+    enabled: true
+    sequence: 3
+    fields:
+      applicant_name: Applicant Name
+      applicant_pan: Applicant's PAN No.
+      owner_pan: Owner's PAN No.
+      owner_first_name: Property Owner First Name
+      owner_middle_name: Property Owner Middle Name
+      owner_last_name: Property Owner Last Name
+  RULE_4:
+    original_id: PROP-015
+    name: Deed And Registration Consistency
+    severity: MAJOR
+    enabled: true
+    sequence: 4
+    fields:
+      deed_address:
+        field: Address as per deed
+        source: Technical Valuation Record
+      complete_property_address:
+        field: Complete Property Address
+        source: Property Registration Record
+      registration_number:
+        field: Registration Number
+        source: Property Registration Record
+      registration_date:
+        field: Registration Date
+        source: Property Registration Record
+      registered_at:
+        field: Registered At
+        source: Property Registration Record
+      transaction_type:
+        field: Transaction Type
+        source: Property Registration Record
+      property_type:
+        field: Property Type
+        source: Property Registration Record
+  RULE_5:
+    original_id: PROP-016
+    name: Sanctioned Plan Evidence
+    severity: MAJOR
+    enabled: true
+    sequence: 5
+    fields:
+      sanction_plan_provided: Sanction plan provided
+      approved_map: Approved Map
+      building_as_per_sanction_plan: Building as per sanction plan
+  RULE_6:
+    original_id: PROP-020
+    name: Address Consistency
+    severity: MAJOR
+    enabled: true
+    sequence: 6
+    fields:
+      registration_address: Complete Property Address
+      deed_address: Address as per deed
+      inspection_address: Inspection address
+  RULE_7:
+    original_id: PROP-021
+    name: Postal-Location Consistency
+    severity: MAJOR
+    enabled: false
+    sequence: 7
+    fields:
+      registration_pincode: Pin Code
+      registration_city: City/Town/Village
+      registration_state: State
+      registration_landmark: Landmark
+      valuation_pincode: Pincode
+      valuation_city: City
+      valuation_state: State
+      valuation_landmark: Landmark
+  RULE_8:
+    original_id: PROP-022
+    name: Unit Identification
+    severity: MAJOR
+    enabled: true
+    sequence: 8
+    fields:
+      registration_unit: Flat No./House No.
+      registration_address_line_1: Address Line 1
+      registration_address_line_2: Address Line 2
+      valuation_unit: Flat No./House No.
+      valuation_unit_alternative: House no / Flat no
+      valuation_address_line_1: Address Line 1
+      valuation_address_line_2: Address Line 2
+  RULE_9:
+    original_id: PROP-023
+    name: Owner/Property Record Linkage
+    severity: MINOR
+    enabled: false
+    sequence: 9
+    fields:
+      registration_reference_id: Reference ID
+      valuation_reference_id: Reference ID
+      asset_id: Asset Id
+      registration_applicant: Applicant Name
+      valuation_applicant: Applicant Name
+  RULE_10:
+    original_id: PROP-024
+    name: Project/Building Consistency
+    severity: MINOR
+    enabled: true
+    sequence: 10
+    fields:
+      project_name: Project Name/Colony Name/Building Name
+      registration_property_type: Property Type
+      registration_property_nature: Property Nature
+      valuation_property_type: Property Type
+      valuation_property_nature: Property nature as per document
+  RULE_11:
+    original_id: PROP-030
+    name: Property Type And Usage Consistency
+    severity: MAJOR
+    enabled: true
+    sequence: 11
+    fields:
+      registration_property_type: Property Type
+      registration_property_usage: Property Usage
+      valuation_property_type: Property Type
+      valuation_investment_self_used: Investment / Self used
+  RULE_12:
+    original_id: PROP-031
+    name: Property Nature Consistency
+    severity: MAJOR
+    enabled: true
+    sequence: 12
+    fields:
+      registration_property_nature: Property Nature
+      valuation_property_nature: Property nature as per document
+  RULE_13:
+    original_id: PROP-032
+    name: Occupancy Consistency
+    severity: MAJOR
+    enabled: true
+    sequence: 13
+    fields:
+      registration_property_occupancy: Property Occupancy
+      valuation_no_of_tenants: No of tenants
+  RULE_14:
+    original_id: PROP-036
+    name: Sanctioned-Plan Consistency
+    severity: MAJOR
+    enabled: true
+    sequence: 14
+    fields:
+      sanction_plan_provided: Sanction plan provided
+      approved_map: Approved Map
+      building_as_per_sanction_plan: Building as per sanction plan
+  RULE_15:
+    original_id: PROP-037
+    name: Property Age Validation
+    severity: MINOR
+    enabled: true
+    sequence: 15
+    fields:
+      residual_age: Residual Age
+      property_condition: Property condition
+      property_type: Property Type
+  RULE_16:
+    original_id: PROP-040
+    name: Area Input Validation
+    severity: MAJOR
+    enabled: true
+    sequence: 16
+    fields:
+      land_area: Land Area as per Deed
+      built_up_area: Built up Area
+      carpet_area: Carpet Area
+  RULE_17:
+    original_id: PROP-041
+    name: Carpet-Area Consistency
+    severity: MAJOR
+    enabled: false
+    sequence: 17
+    fields:
+      carpet_area_sqft: Carpet area in sq.ft
+      carpet_area: Carpet Area
+  RULE_18:
+    original_id: PROP-042
+    name: Adopted-Area Validation
+    severity: MAJOR
+    enabled: true
+    sequence: 18
+    fields:
+      adopted_area: Area Adopted For Valuation
+  RULE_19:
+    original_id: PROP-043
+    name: Rate Validation
+    severity: MAJOR
+    enabled: true
+    sequence: 19
+    fields:
+      land_rate: Land Rate
+      construction_rate: Avg construction rate per sq ft
+      government_rate: Govt. Approved rate(₹)
+    settings:
+      flag_missing_fields: true
+      flag_negative_values: true
+      allow_zero: true
+  RULE_20:
+    original_id: PROP-044
+    name: Market-Value Reconciliation
+    severity: CRITICAL
+    enabled: true
+    sequence: 20
+    fields:
+      land_area: Land Area as per Deed
+      land_rate: Land Rate
+      construction_area: Built up Area
+      construction_rate: Avg construction rate per sq ft
+      current_market_value: Current Market Value
+    settings:
+      calculate_land_value: true
+      calculate_construction_value: true
+      tolerance_percent: 5.0
+      flag_missing_fields: true
+      flag_negative_values: true
+  RULE_21:
+    original_id: PROP-045
+    name: Value-to-be-Considered Review
+    severity: CRITICAL
+    enabled: true
+    sequence: 21
+    fields:
+      current_market_value: Current Market Value
+      value_to_be_considered: value to be considered
+    settings:
+      tolerance_percent: 5.0
+      flag_missing_fields: true
+      flag_negative_values: true
+  RULE_22:
+    original_id: PROP-046
+    name: Valuation Date and Remarks
+    severity: MINOR
+    enabled: true
+    sequence: 22
+    fields:
+      valuation_date: Valuation date
+      technical_valuation_2: Technical valuation 2
+      remarks: Remarks
+    settings:
+      require_valuation_date: true
+      require_technical_valuation_2: false
+      require_remarks: false

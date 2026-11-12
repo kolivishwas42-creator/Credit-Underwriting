@@ -1,0 +1,33 @@
+# Residence / office verification -- where the agent reads the LOS records, and how it picks the address.
+
+# The schema of the LOS tables the agent READS (never writes): loan_applications, application_participants, customers,
+# individual_applicant_details, applicant_addresses. The agent's own tables live in its schema
+# (residence_office_verification). Env override: RESIDENCE_OFFICE_VERIFICATION_LOS_SCHEMA.
+los_source_schema: public
+
+# The applicant_addresses.address_type labels accepted as "the" address to verify (compared case-insensitively).
+# A participant must have exactly ONE matching row: none -> 422, more than one -> 409.
+residence_address_types:
+  - residence
+  - residential
+  - current residence
+  - permanent residence
+  - residential address
+  - Current
+  - Permanent
+  - Office
+
+# The AI risk summary on POST /residence-verification (summary.py): the local model (Ollama, OLLAMA_HOST) explains the
+# triggered rules in short markdown bullet points. It never decides. No triggered rule -> all_clear_text (no model
+# call); model down / slow -> unavailable_text. Env RESIDENCE_OFFICE_VERIFICATION_AI_SUMMARY=off|on overrides enabled.
+ai_summary:
+  enabled: true
+  model: null                    # null -> the app's model (OLLAMA_MODEL / shared/llm/config.py)
+  timeout_seconds: 10
+  temperature: 0.2
+  system_prompt: >-
+    You are a fraud risk analysis agent. Summarise the risk and give actionable insights in short, clean markdown
+    bullet points based on the triggered rules provided.
+  user_prompt: "Verification Type: {verification_type}. Triggered Issues list: {triggered}"
+  all_clear_text: "* **All Clear:** No negative verification rules or compliance issues were triggered."
+  unavailable_text: "* **Notice:** The local AI summary is not available right now; review the triggered rules below."

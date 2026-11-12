@@ -1,0 +1,412 @@
+"""
+The storage contract.
+
+THIS is what the rest of the service depends on. SQLite is one implementation
+of it and the only one in this build; a PostgreSQL repository, or an adapter
+onto an existing LOS over HTTP, replaces it by implementing this interface and
+changing one configuration value. No caller imports sqlite3, and none should.
+
+The interface is deliberately narrow and record-shaped: get one, list by
+parent, upsert one. There is no query language here, because a query language
+in the interface is a query language every future backend has to implement.
+
+NOT FOUND IS NOT AN ERROR HERE. A repository returns None for a missing
+record and lets the caller decide whether that is a 404, an empty checklist,
+or a case that has not been created yet. Raising from the storage layer would
+force every caller into a try block to ask an ordinary question.
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from typing import Any
+
+from shared.store.models import (
+    Applicant,
+    Application,
+    CaseDecision,
+    CaseEvent,
+    CaseFinding,
+    CaseStage,
+    StageTransition,
+    Document,
+    DocumentVersion,
+    FindingKind,
+)
+
+
+def _slot(finding: CaseFinding) -> tuple[str, str, str, str]:
+    """
+    Which logical finding a row is.
+
+    One LOS run writes at most one row per slot: one verification and one
+    extraction per document, one KYC per party (or per case), one income
+    and one eligibility result -- the last two told apart by source type.
+    A later row in the same slot is a later run's answer to the same
+    question.
+    """
+    kind = getattr(finding.finding_kind, "value", str(finding.finding_kind))
+    return (kind, finding.source_type or "", finding.party_id or "",
+            finding.source_id or "")
+
+
+def same_value(stored: Any, given: Any) -> bool:
+    """Whether a form value is unchanged: numbers by value ("500000" == 500000.0), text exactly after trimming
+    (a case-only correction "rahul sharma" -> "Rahul Sharma" IS a change), empty and None alike."""
+    a = "" if stored is None else str(stored).strip()
+    b = "" if given is None else str(given).strip()
+    if a == b:
+        return True
+    try:
+        return float(a) == float(b)
+    except ValueError:
+        return False
+
+
+def current_findings(findings: list[CaseFinding]) -> list[CaseFinding]:
+    """
+    The latest-written row of each logical finding, oldest-written first.
+
+    LATEST BY LAST WRITE, NOT FIRST WRITE. A re-run that reaches a
+    conclusion an earlier run already recorded updates that row, whose
+    `created_at` stays where it was; `updated_at` is what moves. Rows
+    written before that column existed fall back to `created_at`. Ties
+    keep the order the store returned them in, which is insertion order.
+    """
+    def written(finding: CaseFinding):
+        return finding.updated_at or finding.created_at
+
+    latest: dict[tuple[str, str, str, str], CaseFinding] = {}
+    for finding in sorted(findings, key=written):
+        latest[_slot(finding)] = finding
+    return sorted(latest.values(), key=written)
+
+
+class RepositoryError(RuntimeError):
+    """
+    The storage backend could not serve the request.
+
+    Reserved for genuine faults -- an unreachable database, a corrupt file.
+    Never raised for "no such record".
+    """
+
+
+class Repository(ABC):
+    """Persistent storage for the FOS-stage entities."""
+
+    # -- lifecycle ---------------------------------------------------------
+
+    @abstractmethod
+    def initialise(self) -> None:
+        """Create or migrate whatever the backend needs. Idempotent."""
+
+    @abstractmethod
+    def close(self) -> None:
+        """Release connections. Safe to call more than once."""
+
+    def health(self) -> dict[str, object]:
+        """
+        A cheap liveness answer for the readiness probe.
+
+        Default implementation reports the class name only; a backend with a
+        connection to check should override it.
+        """
+        return {"backend": type(self).__name__, "available": True}
+
+    # -- applicants --------------------------------------------------------
+
+    @abstractmethod
+    def get_applicant(self, applicant_id: str) -> Applicant | None:
+        """One applicant, or None when there is no such record."""
+
+    @abstractmethod
+    def save_applicant(self, applicant: Applicant) -> Applicant:
+        """Insert or update by applicant_id. Returns the stored record."""
+
+    @abstractmethod
+    def list_applicants(self, limit: int = 50) -> list[Applicant]:
+        """Most recently updated first. For operator tooling, not for the LLM."""
+
+    # -- applications ------------------------------------------------------
+
+    @abstractmethod
+    def get_application(self, case_id: str) -> Application | None:
+        ...
+
+    @abstractmethod
+    def save_application(self, application: Application) -> Application:
+        """Insert or update by case_id. Returns the stored record."""
+
+    @abstractmethod
+    def list_applications(self, applicant_id: str) -> list[Application]:
+        """Every application belonging to one applicant, newest first."""
+
+    def update_case_fields(self, case_id: str, applicant_fields: dict[str, Any],
+                           application_fields: dict[str, Any],
+                           expected: dict[str, Any] | None = None) -> dict[str, Any]:
+        """
+        A FORM EDIT: only the named columns, applicant and application together.
+
+        Returns {"outcome": "SAVED" | "UNCHANGED" | "STALE" | "NOT_FOUND", "changed": {field: [old, new]},
+        "current": {field: value}}. STALE when `expected` (what the editor was shown) no longer matches the stored
+        value -- someone else changed it since; nothing is written. UNCHANGED when every value already holds (a
+        duplicate request): nothing is written. This default reads then writes whole records; the SQL store
+        overrides it with one locked transaction that touches only the changed columns.
+        """
+        import dataclasses
+
+        application = self.get_application(case_id)
+        applicant = self.get_applicant(application.applicant_id) if application else None
+        if application is None or applicant is None:
+            return {"outcome": "NOT_FOUND", "changed": {}, "current": {}}
+        current = {**{f: getattr(applicant, f, None) for f in applicant_fields},
+                   **{f: getattr(application, f, None) for f in application_fields}}
+        stale = {f: current.get(f) for f in (expected or {}) if f in current
+                 and not same_value(current.get(f), (expected or {})[f])}
+        if stale:
+            return {"outcome": "STALE", "changed": {}, "current": stale}
+        new = {**applicant_fields, **application_fields}
+        changed = {f: [current.get(f), v] for f, v in new.items() if not same_value(current.get(f), v)}
+        if not changed:
+            return {"outcome": "UNCHANGED", "changed": {}, "current": current}
+        a = {f: v for f, v in applicant_fields.items() if f in changed}
+        b = {f: v for f, v in application_fields.items() if f in changed}
+        if a:
+            self.save_applicant(dataclasses.replace(applicant, **a))
+        if b:
+            self.save_application(dataclasses.replace(application, **b))
+        return {"outcome": "SAVED", "changed": changed, "current": current}
+
+    # -- documents ---------------------------------------------------------
+
+    @abstractmethod
+    def get_document(self, document_id: str) -> Document | None:
+        ...
+
+    @abstractmethod
+    def save_document(self, document: Document) -> Document:
+        """Insert or update by document_id. Returns the stored record."""
+
+    @abstractmethod
+    def list_documents(self, case_id: str, *, include_superseded: bool = False) -> list[Document]:
+        """Every current document attached to one case, oldest first (SUPERSEDED only on request)."""
+
+    def list_documents_for_cases(self, case_ids: list[str]) -> dict[str, list[Document]]:
+        """
+        Documents for SEVERAL cases in one call (case_id -> documents). The
+        default loops; a store that can answer in one query overrides it.
+        """
+        return {case_id: self.list_documents(case_id) for case_id in case_ids}
+
+    def get_current_findings_for_cases(self, case_ids: list[str],
+                                       kind: "FindingKind | str | None" = None
+                                       ) -> dict[str, list[CaseFinding]]:
+        """The CURRENT findings of several cases at once (case_id -> findings)."""
+        return {case_id: self.get_current_findings(case_id, kind=kind) for case_id in case_ids}
+
+    # -- authorisation -----------------------------------------------------
+
+    def applicant_owns_case(self, applicant_id: str, case_id: str) -> bool:
+        """
+        Whether this case belongs to this applicant.
+
+        Lives on the repository because the storage layer is the only thing
+        that knows it, and the check has to run before any case data is read.
+        The default works for every backend; override only to make it cheaper.
+        """
+        application = self.get_application(case_id)
+        return application is not None and application.applicant_id == applicant_id
+
+    # -- who may access what ------------------------------------------------
+    #
+    # A GRANT BINDS AN AUTHENTICATED SUBJECT (the JWT `sub`) to an applicant
+    # or a case. It is written when that subject creates the resource, and
+    # read before any case data is served (shared/security/access.py).
+    #
+    # FAIL CLOSED BY DEFAULT. A backend that does not implement grants
+    # records none and grants nothing: every non-service caller is refused
+    # rather than silently allowed.
+
+    # -- Maker / Checker approvals (app/approvals). A backend without them
+    #    cannot host a controlled action: the service refuses, fail closed.
+
+    def save_approval(self, approval: dict) -> None:
+        raise NotImplementedError(f"{type(self).__name__} does not record approvals")
+
+    def update_approval(self, approval: dict, *, expected_version: int) -> bool:
+        raise NotImplementedError(f"{type(self).__name__} does not record approvals")
+
+    def get_approval(self, approval_id: str) -> dict | None:
+        return None
+
+    def list_approvals(self, case_id: str) -> list[dict]:
+        return []
+
+    # -- JEV decision runs (app/jev). A backend without them records none:
+    #    the engine then reports PERSISTENCE_UNAVAILABLE, never a silent loss.
+
+    def save_jev_run(self, run: dict) -> bool:
+        raise NotImplementedError(f"{type(self).__name__} does not record JEV runs")
+
+    def find_jev_run(self, evaluation_key: str) -> dict | None:
+        return None
+
+    def list_jev_runs(self, case_id: str, party_id: str | None = None) -> list[dict]:
+        return []
+
+    def grant_access(self, subject: str, resource_type: str,
+                     resource_id: str) -> None:
+        """Record that `subject` may access this APPLICANT or CASE."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not record access grants")
+
+    def has_access(self, subject: str, resource_type: str,
+                   resource_id: str) -> bool:
+        """Whether `subject` holds a grant on this APPLICANT or CASE."""
+        return False
+
+    # -- chat history (migration 0006). Defaults: not available. ----------------------
+    def chat_history_ready(self) -> bool:
+        return False
+
+    def add_chat_turn(self, row: dict[str, Any]) -> None:
+        return None
+
+    def chat_turns(self, subject_hash: str, conversation_id: str) -> list[dict[str, Any]]:
+        return []
+
+    def delete_chat_turns(self, *, subject_hash: str | None = None, expired_before: str | None = None) -> int:
+        return 0
+
+    def list_granted_cases(self, subject: str, *, limit: int = 500, offset: int = 0, order: str = "updated_at",
+                           descending: bool = True, product: str | None = None, created_from: str | None = None,
+                           created_to: str | None = None) -> list[Application]:
+        """
+        Every application `subject` may open through a live (non-revoked) grant:
+        a CASE grant, or an APPLICANT grant (that applicant's cases). Newest first.
+        6-MVP "my cases"; a READ, no schema change. Default: none.
+        MASTER SPEC section 3: one page (limit / offset), ordered and filtered in the query.
+        """
+        return []
+
+    def count_granted_cases(self, subject: str, *, product: str | None = None, created_from: str | None = None,
+                            created_to: str | None = None) -> int:
+        """MASTER SPEC section 3: the separate cheap count beside a page. Default: none."""
+        return len(self.list_granted_cases(subject, limit=100000, product=product, created_from=created_from,
+                                           created_to=created_to))
+
+
+    # -- case memory -------------------------------------------------------
+    #
+    # ADDITIVE, AND NOT ABSTRACT. Every method below has a default that does
+    # nothing and returns nothing, so an existing Repository implementation
+    # keeps satisfying this interface without being edited. A backend that
+    # has not implemented case memory reports "no findings", which is true
+    # of it, rather than failing to construct.
+    #
+    # DATA ACCESS ONLY. These take a case_id and filter on it; they do not
+    # decide whether the caller may see that case. Authorisation stays where
+    # it is -- require_jwt, Caller, capability, then ownership -- and moving
+    # any of it here would put two answers to one question in the codebase.
+    # `applicant_owns_case` above is the seam those checks call.
+
+    def save_finding(self, finding: CaseFinding) -> CaseFinding:
+        """Record one conclusion. Re-recording an unchanged one is a no-op."""
+        return finding
+
+    def get_case_findings(
+        self,
+        case_id: str,
+        party_id: str | None = None,
+        kind: FindingKind | str | None = None,
+    ) -> list[CaseFinding]:
+        """
+        Findings for one case, oldest first.
+
+        `party_id` narrows to one party AND to case-level findings that
+        belong to nobody in particular; omitting it returns everything on
+        the case. It never widens beyond the case.
+        """
+        return []
+
+    def get_current_findings(
+        self,
+        case_id: str,
+        party_id: str | None = None,
+        kind: FindingKind | str | None = None,
+    ) -> list[CaseFinding]:
+        """
+        The findings that describe the case NOW, oldest-written first.
+
+        `get_case_findings` is the history: every run's conclusions. A case
+        processed twice keeps both, and a reader that took the first
+        mismatch it met reported a PAN name the pipeline had since
+        corrected. This keeps, for each logical finding, only the most
+        recently written row -- see `current_findings`.
+        """
+        return current_findings(
+            self.get_case_findings(case_id, party_id=party_id, kind=kind))
+
+    def save_document_version(self, version: DocumentVersion) -> DocumentVersion:
+        """Record one upload of one document."""
+        return version
+
+    def get_document_versions(self, document_id: str) -> list[DocumentVersion]:
+        """Every version of one document, oldest first."""
+        return []
+
+    def save_decision(self, decision: CaseDecision) -> CaseDecision:
+        """Record a decision the pipeline reached."""
+        return decision
+
+    def get_case_decisions(self, case_id: str) -> list[CaseDecision]:
+        """Decisions recorded for one case, oldest first."""
+        return []
+
+    def record_event(self, event: CaseEvent) -> CaseEvent:
+        """Append one event to the case timeline."""
+        return event
+
+    def get_case_timeline(self, case_id: str) -> list[CaseEvent]:
+        """
+        The case timeline, in the order things happened.
+
+        Ordered by `sequence` and not by timestamp: several events are
+        written inside one request and can share a millisecond.
+        """
+        return []
+
+    # -- stage lifecycle -----------------------------------------------------
+    #
+    # ADDITIVE, AND FAIL CLOSED FOR WRITES. A backend without a stage record
+    # reports none (so its cases resolve exactly as before) and refuses to
+    # transition anything rather than pretending it did.
+
+    def get_case_stage(self, case_id: str) -> CaseStage | None:
+        """The case's authoritative stage record, or None if never set."""
+        return None
+
+    def get_stage_transitions(self, case_id: str) -> list[StageTransition]:
+        """The case's stage history, oldest first."""
+        return []
+
+    def get_stage_transition(self, transition_id: str) -> StageTransition | None:
+        """One recorded transition, by id."""
+        return None
+
+    def apply_stage_transition(self, expected_version: int, state: CaseStage,
+                               transition: StageTransition,
+                               event: CaseEvent) -> bool:
+        """
+        Write a transition ATOMICALLY: the new stage record, its history
+        row and its timeline event, or none of them.
+
+        COMPARE-AND-SET. Applied only while the stored record is still at
+        `expected_version` (0 = no record yet); returns False, writing
+        nothing, when another writer got there first.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not record stage transitions")
+
+
+__all__ = ["Repository", "RepositoryError"]

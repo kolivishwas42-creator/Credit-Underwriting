@@ -1,0 +1,76 @@
+# LOS STAGE LIFECYCLE -- which stage a case may move to next.
+#
+# Read by shared/los/stage_lifecycle.py, the one service that changes a
+# case's stage. Nothing else writes a stage: not the Copilot, not the
+# language model, not document processing, not demo seeding.
+#
+# UNCONFIRMED. The route below is the lifecycle order the stage vocabulary
+# already documents (shared/los/stages.py ORDER). No business policy in
+# this repository confirms it -- in particular which stages a product may
+# SKIP, whether a case may be SENT BACK, and what must be true before a
+# handoff. Those are left as switches, all off, rather than invented.
+policy_id: LOS_STAGE_LIFECYCLE
+policy_version: "0.1.0"
+status: UNCONFIRMED
+
+# The stage a case is in before anything has transitioned it.
+initial_stage: FOS
+
+# A move to an earlier stage is refused unless that edge is listed under
+# the stage's `next` below. UNCONFIRMED: no send-back route is defined.
+allow_backward: false
+
+# Where a case may be WITHIN its stage. A workflow status, never a decision.
+stage_statuses: [IN_PROGRESS, READY_FOR_HANDOFF, ON_HOLD]
+
+# Who may drive a transition, by kind. Recorded on every transition.
+# MAKER_CHECKER: a four-eyes override, executed when its checker approves it
+# (app/approvals) -- never sent by a caller directly.
+sources: [WORKFLOW, LOS_INTEGRATION, OPERATOR, MAKER_CHECKER]
+
+# The scope a token needs to call the transition endpoint. The write-all
+# service scope (permissions.write_all_scope, los.write) also qualifies.
+# Ordinary FOS / applicant tokens carry neither.
+transition_scope: "los.stage:write"
+
+# TWO EXPLICIT WAYS TO MOVE A CASE FORWARD (POST /api/v1/los/cases/{id}/stage `mode`):
+#
+#   GATED     (the default; what the Copilot's STAGE_TRANSITION action sends)
+#             the configured stage gate (shared/config/stage_gates.yaml) is
+#             evaluated on the server, from the records, at the moment of the
+#             move. Not ready -> 409 GATE_NOT_MET; no criteria configured for
+#             the stage -> 409 GATE_CONFIGURATION_GAP. Never a silent pass.
+#   OVERRIDE  a deliberate, caller-decided ungated move (an operator, or a
+#             workflow integration that decides for itself -- the lifecycle's
+#             original contract): needs `override_scope` (or the service
+#             write-all scope); recorded on the history and in the response as
+#             an override, with the gate status it overrode.
+#
+# A status-only change within the current stage is not a move and is not gated.
+override_scope: "los.stage:override"
+
+stages:
+  FOS:
+    next: [CPA]
+    # PREDICATE, OFF. When set, the case must be at this stage status
+    # (e.g. READY_FOR_HANDOFF) before it may leave the stage.
+    # UNCONFIRMED: no handoff criterion is confirmed by business policy.
+    requires_stage_status: null
+  CPA:
+    next: [CREDIT]
+    requires_stage_status: null
+  CREDIT:
+    next: [RCU]
+    requires_stage_status: null
+  RCU:
+    next: [BOPS]
+    requires_stage_status: null
+  BOPS:
+    next: [HOPS]
+    requires_stage_status: null
+  HOPS:
+    next: [DISBURSEMENT]
+    requires_stage_status: null
+  DISBURSEMENT:
+    next: []
+    requires_stage_status: null

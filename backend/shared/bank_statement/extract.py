@@ -1,0 +1,1650 @@
+"""
+Bank statement extraction pipeline.
+
+Routing is the important part: a statement with an embedded text layer is
+parsed directly and returns in seconds, while a scanned statement is reported
+as REQUIRES_OCR rather than being rasterised inline. A 26-page scan takes
+roughly thirty seconds to OCR, which does not belong in a synchronous request
+-- it belongs on the platform's existing AI job queue.
+"""
+
+from __future__ import annotations
+
+import logging
+import contextvars
+import os
+from contextlib import contextmanager
+import re
+import threading
+import time
+from decimal import Decimal
+from typing import Any
+from pathlib import Path
+
+from shared.bank_statement import parse as P
+from shared.bank_statement.schemas import (
+    BankStatementResult, ExtractionStatus, SourceKind, StatementPeriod,
+    Transaction,
+)
+
+logger = logging.getLogger(__name__)
+
+# A page needs at least this much text to count as digital. Scanned pages
+# often carry a few characters of header furniture from a stamp or watermark.
+MIN_CHARS_PER_PAGE = 60
+
+
+#: Limits raised for ONE caller -- the background OCR worker -- and seen by
+#: that caller only.
+#:
+#: WHY NOT THE ENVIRONMENT. The worker used to raise its clock and page
+#: ceiling by writing them into `os.environ` for the duration of a job.
+#: The environment is process-wide, so every upload the server handled
+#: while a job ran inherited the worker's 300-second clock: measured live,
+#: a 104-page statement uploaded during a background job held its caller
+#: for 163 s instead of being queued at the 25 s budget. A context
+#: variable is per-thread; the worker's thread sees the raised limits and
+#: a request thread never does.
+_RAISED: contextvars.ContextVar = contextvars.ContextVar(
+    "bank_statement_raised_limits", default=None)
+
+
+@contextmanager
+def raised_limits(limits: dict[str, int]):
+    """Raise the named limits for the current thread only, then restore."""
+    token = _RAISED.set({**(_RAISED.get() or {}), **limits})
+    try:
+        yield
+    finally:
+        _RAISED.reset(token)
+
+
+def _int_env(name: str, default: int) -> int:
+    """An empty env value counts as unset; int("") would otherwise raise."""
+    raised = _RAISED.get()
+    if raised and name in raised:
+        return int(raised[name])
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def page_cap() -> int:
+    """Maximum pages read. Beyond this the result is explicitly PARTIAL."""
+    return _int_env("BANK_STATEMENT_MAX_PAGES", 150)
+
+
+def inline_ocr_pages() -> int:
+    """
+    Page count up to which a scanned statement is OCR'd inline.
+
+    A blanket "scanned means asynchronous" rule is too blunt: a two-page
+    WhatsApp statement OCRs in a couple of seconds and there is no reason to
+    make the caller queue it. A fifty-page scan is a different matter, so the
+    cutoff is deliberately low and configurable.
+    """
+    # Default 0: inline OCR is DISABLED.
+    #
+    # It was measured at 22s locally and 103s on the reporting host for a
+    # two-page statement, and the rows it produced did not reconcile against
+    # the running balance. A path that is both slow and untrustworthy should
+    # not run by default -- returning REQUIRES_OCR in milliseconds lets the
+    # caller queue the work instead of waiting two minutes for figures nobody
+    # should use.
+    #
+    # Set to a small number to re-enable once column reconstruction from OCR
+    # tokens is verified against more scanned samples.
+    # Enabled: grid reconstruction now reconciles on the scanned sample
+    # (26/26 rows), so the path is trustworthy for short statements. Long
+    # scans still belong on the asynchronous queue, hence the low cap.
+    return _int_env("BANK_STATEMENT_INLINE_OCR_PAGES", 4)
+
+
+def time_budget_ms() -> int:
+    """
+    Wall-clock budget for parsing.
+
+    Without this a very long statement runs until the orchestrator's timeout
+    fires and the caller gets a 502 with nothing at all. Stopping early and
+    returning the rows parsed so far is strictly more useful: the caller sees
+    real transactions plus a warning saying the document was truncated.
+    """
+    return _int_env("BANK_STATEMENT_TIME_BUDGET_MS", 25_000)
+
+
+def projection_sample_pages() -> int:
+    """
+    How many table pages are timed before projecting the whole document.
+
+    WHY PROJECT AT ALL. The table path used to discover it would not
+    finish only when the budget ran out -- after spending the whole 25
+    seconds -- and then return a truncated parse that could never pass. A
+    104-page statement cost a caller 25 s to learn nothing usable. Timing
+    the first few pages and projecting the rest decides the same question
+    in about a second, on the host it is actually running on.
+    """
+    return max(1, _int_env("BANK_STATEMENT_PROJECTION_SAMPLE_PAGES", 3))
+
+
+def _page_texts(path: str) -> tuple[list[str], int]:
+    """
+    Extract text per page.
+
+    pypdf is tried first because it is markedly faster: on a 53-page HDFC
+    statement it returned the full text in ~2.2s against ~14.7s for
+    pdfplumber, and the row parser works from line text rather than cell
+    geometry, so the extra layout fidelity buys nothing here.
+
+    pdfplumber is kept as a fallback for PDFs whose text pypdf cannot reach.
+    """
+    from pypdf import PdfReader
+
+    from shared.bank_statement import fastpdf
+
+    # PYMUPDF FIRST (fastpdf.py): measured 0.12 s against pypdf's 8.0 s for the
+    # same 39 pages. pypdf, then pdfplumber, remain the fallbacks.
+    texts: list[str] = fastpdf.page_texts(path) or []
+    if not texts:
+        try:
+            reader = PdfReader(path)
+            texts = [(page.extract_text() or "") for page in reader.pages]
+        except Exception as exc:
+            logger.debug("pypdf extraction failed (%s); falling back", exc)
+            texts = []
+
+    with_text = sum(1 for t in texts if len(t.strip()) >= MIN_CHARS_PER_PAGE)
+
+    # Only pay for pdfplumber when pypdf found nothing usable.
+    if texts and with_text == 0:
+        try:
+            import pdfplumber
+
+            with pdfplumber.open(path) as pdf:
+                plumbed = [(page.extract_text() or "") for page in pdf.pages]
+            plumbed_with_text = sum(
+                1 for t in plumbed if len(t.strip()) >= MIN_CHARS_PER_PAGE
+            )
+            if plumbed_with_text > 0:
+                return plumbed, plumbed_with_text
+        except Exception as exc:
+            logger.debug("pdfplumber fallback failed: %s", exc)
+
+    return texts, with_text
+
+
+def _page_table(page):
+    """
+    EVERY transaction table on the page, top to bottom, as one table.
+
+    MEASURED (real Kotak statement): a page's transactions can be split into two
+    tables of the same width -- a 35-row table and a 2-row one. `extract_table()`
+    returns only the largest, so the 2-row tail was dropped on every such page:
+    104 rows unread, 11 breaks in the balance chain, no reconciliation. Tables of
+    the main table's column count are joined in page order; anything else on the
+    page (a summary box of another width) is left out as before.
+    """
+    finder = getattr(page, "find_tables", None)
+    if finder is None:                      # an engine without table geometry
+        return page.extract_table()
+    tables = [t.extract() for t in sorted(finder(), key=lambda t: t.bbox[1])]
+    tables = [t for t in tables if t and t[0]]
+    if not tables:
+        return None
+    width = len(max(tables, key=len)[0])
+    merged = [row for t in tables if len(t[0]) == width for row in t]
+    return merged or None
+
+
+def table_workers() -> int:
+    """
+    Processes that read page tables in parallel. 0 or 1 = read in-line.
+
+    MEASURED (2026-10-05, idle 16-core host): pdfplumber reads a page table
+    in ~1.5-2 s of pure-Python CPU, one page after another -- a 53-page
+    statement took 82 s and a 104-page one 200 s, which the worker's own
+    300 s clock does not survive once the host is busy. Pages are
+    independent until the row mapping, so the TABLES are read in parallel
+    and the mapping, carry-over and balance chain still run in page order
+    exactly as before. One shared pool bounds the total across concurrent
+    uploads.
+    """
+    # 2026-10-14, WARM pool, real 104-page native statement (1339 rows, reconciled every time): 4 workers 5.51 s,
+    # 6 -> 4.84 s, 8 -> 4.60 s. Six meets the 5 s target and leaves cores for the other documents of a request.
+    return max(0, _int_env("BANK_STATEMENT_TABLE_WORKERS", min(6, max(1, (os.cpu_count() or 2) - 1))))
+
+
+#: Fewer pages left than this are read in-line: starting the pool costs more.
+_PARALLEL_MIN_PAGES = 8
+_POOL = None
+_POOL_LOCK = threading.Lock()
+
+
+def _table_pool():
+    global _POOL
+    with _POOL_LOCK:
+        if _POOL is None:
+            from concurrent.futures import ProcessPoolExecutor
+            _POOL = ProcessPoolExecutor(max_workers=table_workers())
+        return _POOL
+
+
+def warm_table_pool() -> None:
+    """Start the table worker processes now (server startup), not inside the first long statement's upload."""
+    if table_workers() <= 1:
+        return
+    try:
+        pool = _table_pool()
+        list(pool.map(abs, range(table_workers())))     # one trivial task per worker: each process is up
+    except Exception as exc:  # noqa: BLE001 - the first statement starts it instead, as before
+        logger.debug("Table pool warmup skipped: %s", type(exc).__name__)
+
+
+def _drop_pool() -> None:
+    global _POOL
+    with _POOL_LOCK:
+        pool, _POOL = _POOL, None
+    if pool is not None:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
+def _tables_for_pages(path: str, numbers: list[int]) -> list[tuple[int, Any]]:
+    """Pool task: (1-based page number, table) for each page, read with pdfplumber."""
+    import pdfplumber
+
+    out: list[tuple[int, Any]] = []
+    with pdfplumber.open(path, pages=numbers) as pdf:
+        for number, page in zip(numbers, pdf.pages):
+            try:
+                out.append((number, _page_table(page)))
+            except Exception:  # noqa: BLE001 - same as the in-line path: page skipped
+                out.append((number, None))
+    return out
+
+
+def _prefetch_tables(path: str, numbers: list[int], deadline: float) -> dict[int, Any] | None:
+    """
+    Page tables read in parallel, keyed by page number.
+
+    None when the pool could not be used or the deadline passed -- the
+    caller then reads in-line (pool unusable) or defers (out of time); a
+    partial set is never returned, so no page is silently skipped.
+    """
+    from concurrent.futures import TimeoutError as _Timeout
+    from concurrent.futures.process import BrokenProcessPool
+
+    workers = table_workers()
+    size = max(1, -(-len(numbers) // (workers * 2)))     # ~2 chunks per worker
+    chunks = [numbers[i:i + size] for i in range(0, len(numbers), size)]
+    try:
+        pool = _table_pool()
+        futures = [pool.submit(_tables_for_pages, path, chunk) for chunk in chunks]
+        tables: dict[int, Any] = {}
+        for future in futures:
+            remaining = deadline - time.perf_counter()
+            if remaining <= 0:
+                raise _Timeout()
+            tables.update(future.result(timeout=remaining))
+        return tables
+    except _Timeout:
+        for future in futures:
+            future.cancel()
+        raise
+    except BrokenProcessPool:
+        logger.warning("Bank statement table pool broke; reading in-line.")
+        _drop_pool()
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Parallel table read failed (%s); reading in-line.", type(exc).__name__)
+        return None
+
+
+def extract_via_tables(
+    path: str, started: float
+) -> tuple[list[Transaction], bool]:
+    """
+    Read transactions from real table cells.
+
+    This is the correct path for any statement whose PDF carries a ruled
+    table, which covers every digital statement seen. Text-line parsing is
+    kept only as a fallback for layouts without table structure.
+
+    Returns (rows, budget_exhausted). THE SECOND VALUE MATTERS. Abandoning
+    this path because the document has no table structure and abandoning it
+    because the clock ran out look identical from the outside -- an empty or
+    short list either way -- and the caller then falls back to text-line
+    parsing and reports whatever arithmetic that produces. On a statement
+    that HAS a table, the fallback's numbers are not a second opinion; they
+    are a worse reading of the same page. Saying which reason applied is what
+    lets the caller report "we could not parse this" instead of "this
+    statement does not add up".
+    """
+    try:
+        import pdfplumber
+    except ImportError:
+        logger.debug("pdfplumber unavailable; falling back to text parsing.")
+        return [], False
+
+    from shared.bank_statement import tables as T
+
+    out: list[Transaction] = []
+    mapping: dict[str, int] | None = None
+    last_balance = None
+    carry: dict | None = None
+    cap = page_cap()
+    budget = time_budget_ms()
+    exhausted = False
+
+    sample = projection_sample_pages()
+    prefetched: dict[int, Any] = {}
+
+    try:
+        from shared.bank_statement import fastpdf
+
+        # PyMuPDF tables, pdfplumber-shaped (fastpdf.py); a page it finds no
+        # table on falls back to pdfplumber for that page.
+        with fastpdf.open_pdf(path) as pdf:
+            total_pages = len(pdf.pages)
+            rate_started = None
+            for index, page in enumerate(pdf.pages, start=1):
+                # THE RATE IS TIMED FROM PAGE 2. The first page carries
+                # one-off costs -- fonts and resources loaded once for the
+                # whole document -- and counting them as a per-page cost
+                # overstates every page after it.
+                if index == 2:
+                    rate_started = time.perf_counter()
+                if index > cap:
+                    exhausted = True
+                    break
+                if (time.perf_counter() - started) * 1000 > budget:
+                    exhausted = True
+                    break
+
+                # PROJECT, THEN COMMIT OR DEFER. After `sample` pages the
+                # measured per-page cost says whether the rest fits the
+                # budget. If it does not, stop now: the caller defers the
+                # document to the durable queue instead of spending the
+                # whole budget on a parse it would have to truncate.
+                #
+                # Logged as COUNTS AND TIMINGS ONLY -- no text, no account
+                # number, no narration.
+                if (index == sample + 2 and total_pages > sample + 1
+                        and rate_started is not None):
+                    per_page_ms = (time.perf_counter() - rate_started) * 1000 / sample
+                    left = list(range(index, min(total_pages, cap) + 1))
+                    # The rest is read in parallel when there is enough of it
+                    # and the reader is pdfplumber (the pool's engine); the
+                    # projection then divides by the workers that read it.
+                    parallel = (table_workers() > 1 and len(left) >= _PARALLEL_MIN_PAGES
+                                and fastpdf.engine() != "pymupdf")
+                    share = table_workers() if parallel else 1
+                    projected_ms = ((time.perf_counter() - started) * 1000
+                                    + per_page_ms * (total_pages - sample - 1) / share)
+                    if projected_ms > budget:
+                        logger.info(
+                            "Bank statement deferred: %d pages, %.0f ms/page, "
+                            "projected %.0f ms against a %d ms budget.",
+                            total_pages, per_page_ms, projected_ms, budget)
+                        return [], True
+                    if parallel:
+                        try:
+                            prefetched = _prefetch_tables(
+                                path, left, started + budget / 1000) or {}
+                        except Exception:     # the deadline passed mid-read
+                            logger.info("Bank statement deferred: parallel read "
+                                        "overran the %d ms budget.", budget)
+                            return [], True
+                if index in prefetched:
+                    table = prefetched.pop(index)
+                else:
+                    try:
+                        table = _page_table(page)
+                    except Exception:
+                        continue
+                if not table:
+                    continue
+
+                if mapping is None:
+                    found = T.find_header_row(table)
+                    if found:
+                        mapping, header_index = found
+                        body = table[header_index + 1:]
+                    else:
+                        # Header unreadable: infer the layout from the data,
+                        # which is regular even when the caption row is not.
+                        mapping = T.infer_columns(table)
+                        if not mapping:
+                            continue
+                        body = table
+                else:
+                    # Later pages repeat the header; skip it when present.
+                    body = table
+                    if T.map_columns(table[0]).get("date") is not None and not (
+                        table[0] and (table[0][mapping["date"]] or "").strip()
+                        and any(ch.isdigit() for ch in (table[0][mapping["date"]] or ""))
+                    ):
+                        body = table[1:]
+
+                # Header detection runs on the UNSPLIT table -- a wrapped
+                # two-line header ("Value\nDate") still matches as one
+                # caption. Only the body needs expanding: a borderless
+                # table's data cells arrive multi-line, one row per
+                # transaction glued together with no ruling to separate
+                # them.
+                # Balance is the more reliable anchor: it changes on every
+                # transaction and pdfplumber never merges two balance figures
+                # onto one line, whereas the date column can (two same-day
+                # transactions occasionally read as one date line, silently
+                # dropping a row when date was used as the anchor).
+                # The movement columns of a borderless table are placed in
+                # column order, the balance direction saying which column
+                # the next line came from (split_merged_cells_ordered). The
+                # values are the ones read; nothing is derived.
+                body, placements = T.split_merged_cells_ordered(
+                    body, mapping, prev_balance=last_balance)
+
+                page_rows, carry = T.rows_to_transactions(
+                    body, mapping, index, carry, prev_balance=last_balance,
+                    source="READ", placements=placements,
+                )
+                out.extend(page_rows)
+                for row in reversed(page_rows):
+                    if row.balance is not None:
+                        last_balance = row.balance
+                        break
+                if carry and carry.get("balance") is not None:
+                    last_balance = carry["balance"]
+            if carry:
+                out.extend(T.flush(carry, len(pdf.pages)))
+
+        # Verify the debit/credit assignment against the running balance
+        # instead of trusting the column order.
+        out, swapped = T.orient_movements(out)
+        if swapped:
+            logger.info("Debit/credit columns were swapped; corrected by balance check.")
+        # NO AMOUNT IS EVER DERIVED FROM THE BALANCE. A value that landed on
+        # the wrong row, or could not be read, stays as read or missing;
+        # `annotate_against_balance` records the disagreement and
+        # reconciliation reports it (INCONCLUSIVE / MISMATCH), which is the
+        # honest answer.
+    except Exception as exc:
+        logger.warning("Table extraction failed: %s", exc)
+        return [], exhausted
+
+    return out, exhausted
+
+
+def _account_holder(path: str, texts: list[str]) -> str | None:
+    """
+    The account holder, from whichever reader actually sees the letterhead.
+
+    PYPDF IS FAST AND SOMETIMES SKIPS THE ADDRESS BLOCK. On one HDFC
+    layout its page-one text begins at the transaction table: the
+    holder, the branch and the address are simply not in what it
+    returns. pdfplumber reads the same page and finds
+    "MS <NAME>" exactly where a person sees it.
+
+    SO THE SECOND READER IS ASKED ONLY WHEN THE FIRST FOUND NOBODY,
+    and only for page one. Statements whose holder pypdf already reads
+    -- which is most of them -- pay nothing, and nothing else in the
+    extraction changes reader: the transactions, the balances and the
+    reconciliation are parsed from exactly the text they were before.
+
+    NEVER RAISES, AND NEVER INVENTS. A second read that fails leaves
+    the holder unknown, which the identity check already handles as
+    one fewer source.
+    """
+    holder = P.detect_account_holder(_header_text(texts))
+    if holder:
+        return holder
+
+    try:
+        import pdfplumber
+
+        with pdfplumber.open(path) as document:
+            if not document.pages:
+                return None
+            first = document.pages[0].extract_text() or ""
+    except Exception as exc:
+        logger.debug("Second-reader holder lookup unavailable: %s",
+                     type(exc).__name__)
+        return None
+
+    return P.detect_account_holder(first)
+
+
+def _header_text(texts: list[str]) -> str:
+    """
+    Page one, in full.
+
+    The issuer's letterhead is not reliably the first thing pypdf extracts:
+    on a real HDFC statement it was line 50 of 73 on page one, with the
+    transaction table's own header and first rows extracted BEFORE it,
+    despite the letterhead being what a person sees first when looking at
+    the page. Restricting to the first several lines therefore missed the
+    letterhead outright on that statement.
+
+    Scanning the whole of page one is safe here because `detect_bank` now
+    excludes UPI-handle-embedded matches ("@okhdfcbank"), which was the
+    original reason this was narrowed to a small window in the first place
+    -- with that false-positive source closed off, there is no need to
+    withhold the rest of the page from the search.
+    """
+    if not texts:
+        return ""
+    return texts[0]
+
+
+class _ScannedPages:
+    """
+    ONE SCANNED PDF, RASTERISED ONCE, EACH PAGE OCR'D AT MOST ONCE (2026-10-10, measured).
+
+    `extract_via_grid` and its fallback `extract_via_columns` each rasterised the file and OCR'd its pages again,
+    one page after another. On a 4-page SBI scan: 2 rasterisations, 5 page reads (page 1 twice -- the grid found
+    its ruled summary block, then no rows), 19.7 s warm / 38 s cold, while the OCR pool's other workers sat idle.
+
+    Here both strategies share one reader for the duration of one `extract_bank_statement` call: the images once,
+    each page's tokens once. The input to the recogniser is exactly what each strategy passed before --
+    `PP.to_array(image.convert("RGB"))` -- so the tokens (and the 40 rows of that sample) are identical.
+    Measured warm on the 16-logical host: 19.7 s -> 15.4 s (4 page reads, 1 rasterisation).
+
+    PAGES IN PARALLEL ARE OPT-IN, NOT THE DEFAULT (BANK_STATEMENT_PARALLEL_PAGES=true): reading the pages together
+    on the bounded OCR pool measured 15.3 s warm -- the same -- because OCR is CPU-bound and each pool engine has a
+    share of the cores (ocr._default_ocr_threads), so three pages at once each ran ~3x slower. It only helped a
+    cold start (26.6 s -> 20.2 s) and it would occupy every OCR worker other documents in the request need.
+    """
+
+    def __init__(self, path: str, only: set[int] | None = None) -> None:
+        self.path = path
+        self.only = set(only) if only else None      # 1-based pages to render; None = every page
+        self._images: list | None = None
+        self._tokens: dict[int, Any] = {}
+        self._lock = threading.Lock()
+
+    def images(self) -> list:
+        """The page images, one per page; a page outside `only` is None (never rendered)."""
+        if self._images is None:
+            from pdf2image import convert_from_path
+            if self.only is None:
+                self._images = convert_from_path(self.path, dpi=200)
+            else:
+                import pymupdf
+
+                with pymupdf.open(self.path) as doc:
+                    count = doc.page_count
+                self._images = [convert_from_path(self.path, dpi=200, first_page=i, last_page=i)[0]
+                                if i in self.only else None for i in range(1, count + 1)]
+        return self._images
+
+    @staticmethod
+    def _read(image) -> Any:
+        from shared.document_agent import preprocess as PP
+        from shared.document_agent.ocr import get_engine
+
+        try:
+            return get_engine().read_array(PP.to_array(image.convert("RGB")), upright=_upright_pages())
+        except Exception as exc:  # noqa: BLE001 - kept and re-raised per page, as each strategy reported it
+            return exc
+
+    def prefetch(self, indexes: list[int]) -> None:
+        """Read these pages (1-based) together on the OCR pool; already-read pages are not read again."""
+        from shared.document_agent import ocr as O
+
+        images = self.images()
+        with self._lock:
+            wanted = [i for i in dict.fromkeys(indexes) if i not in self._tokens and 1 <= i <= len(images)
+                      and images[i - 1] is not None]
+        if not wanted:
+            return
+        if len(wanted) > 1 and _page_workers() > 1 and isinstance(O.get_engine(), O.RapidOCREngine):
+            # SCANNED PAGES READ TOGETHER, EACH ON ITS OWN ENGINE (2026-10-14): a dedicated pool of page readers,
+            # one RapidOCR engine per thread (no session shared), sized for a page each (BANK_STATEMENT_PAGE_WORKERS
+            # x BANK_STATEMENT_PAGE_OCR_THREADS). MEASURED on the 4-page SBI scan, warm: 4 engines x 4 threads read
+            # the 4 pages ~4x faster than one engine page by page. Same pages, same OCR, same order kept below.
+            results = list(_page_pool().map(_read_page_dedicated, [images[i - 1] for i in wanted]))
+        elif not _PARALLEL_PAGES or len(wanted) == 1 or threading.current_thread().name.startswith(O._OCR_THREAD_PREFIX):
+            results = [self._read(images[i - 1]) for i in wanted]
+        else:
+            pool = O.get_ocr_executor()
+            context = contextvars.copy_context
+            futures = [pool.submit(context().run, self._read, images[i - 1]) for i in wanted]
+            results = [future.result() for future in futures]
+        with self._lock:
+            for i, result in zip(wanted, results):
+                self._tokens.setdefault(i, result)
+
+    def tokens(self, index: int) -> Any:
+        """The page's OCR result (tokens, extra), raising what the recogniser raised for it."""
+        if index not in self._tokens:
+            self.prefetch([index])
+        result = self._tokens[index]
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+_PARALLEL_PAGES = os.getenv("BANK_STATEMENT_PARALLEL_PAGES", "false").strip().lower() == "true"
+
+
+def _page_workers() -> int:
+    """Dedicated scanned-page readers (0/1 = the previous one-by-one read)."""
+    return max(0, _int_env("BANK_STATEMENT_PAGE_WORKERS", 4))
+
+
+_PAGE_POOL = None
+_PAGE_LOCAL = threading.local()
+
+
+def _page_pool():
+    global _PAGE_POOL
+    with _POOL_LOCK:
+        if _PAGE_POOL is None:
+            from concurrent.futures import ThreadPoolExecutor
+            _PAGE_POOL = ThreadPoolExecutor(max_workers=_page_workers(), thread_name_prefix="bank-page")
+        return _PAGE_POOL
+
+
+def _read_page_dedicated(image) -> Any:
+    """One page on this pool thread's OWN RapidOCR engine (built once per thread), upright pages."""
+    from shared.document_agent import ocr as O
+    from shared.document_agent import preprocess as PP
+
+    try:
+        engine = getattr(_PAGE_LOCAL, "engine", None)
+        if engine is None:
+            engine = _PAGE_LOCAL.engine = O.RapidOCREngine(threads=_int_env("BANK_STATEMENT_PAGE_OCR_THREADS", 4))
+        return engine.read_array(PP.to_array(image.convert("RGB")), upright=_upright_pages())
+    except Exception as exc:  # noqa: BLE001 - kept and re-raised per page, as each strategy reported it
+        return exc
+
+
+def warm_page_readers() -> None:
+    """Build every page reader's engine now (server startup), not inside the first scanned statement."""
+    if _page_workers() <= 1:
+        return
+    try:
+        from PIL import Image
+
+        blank = Image.new("RGB", (800, 1100), "white")
+        list(_page_pool().map(_read_page_dedicated, [blank] * _page_workers()))
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Page reader warmup skipped: %s", type(exc).__name__)
+
+_PAGES: contextvars.ContextVar["_ScannedPages | None"] = contextvars.ContextVar("scanned_pages", default=None)
+
+
+def _scanned_pages(path: str, only: set[int] | None = None) -> "_ScannedPages":
+    """The reader shared inside one extract_bank_statement call, or a fresh one for a direct caller. `only`: the
+    pages that need OCR (a MIXED statement's scanned pages) -- the others are not rendered."""
+    shared = _PAGES.get()
+    if shared is not None and shared.path == path and shared.only == (set(only) if only else None):
+        return shared
+    return _ScannedPages(path, only)
+
+
+def extract_via_grid(path: str, started: float, only_pages: set[int] | None = None) -> list[Transaction]:
+    """
+    Read a scanned statement by reconstructing its printed table grid.
+
+    Rasterise, find the ruled lines, OCR the page once, then place each token
+    into the cell its centre falls in. From there the same column mapping and
+    balance verification used for digital PDFs applies unchanged.
+    """
+    try:
+        import numpy as np
+        from pdf2image import convert_from_path
+
+        from shared.bank_statement import grid as G
+        from shared.bank_statement import tables as T
+        from shared.document_agent import preprocess as PP
+        from shared.document_agent.ocr import get_engine
+    except ImportError as exc:
+        logger.debug("Grid extraction unavailable: %s", exc)
+        return []
+
+    pages = _scanned_pages(path, only_pages)
+    try:
+        images = pages.images()
+    except Exception as exc:
+        logger.warning("Could not rasterise PDF: %s", exc)
+        return []
+
+    out: list[Transaction] = []
+    mapping: dict[str, int] | None = None
+    carry: dict | None = None
+    cap = page_cap()
+    budget = time_budget_ms()
+
+    # THE GRID FIRST, ON EVERY PAGE IN SCOPE (cheap, no OCR); then only the ruled pages are OCR'd -- together
+    grids: dict[int, tuple] = {}
+    for index, image in enumerate(images, start=1):
+        if index > cap:
+            break
+        if image is None:                      # not a page this read was asked for
+            continue
+        try:
+            row_ys, col_xs = G.detect_grid(np.array(image.convert("L")))
+        except Exception as exc:
+            logger.warning("Grid detection failed on page %d: %s", index, exc)
+            continue
+        if len(col_xs) >= 3 and len(row_ys) >= 3:
+            grids[index] = (row_ys, col_xs)
+    if (time.perf_counter() - started) * 1000 <= budget:
+        pages.prefetch(list(grids))
+
+    for index, image in enumerate(images, start=1):
+        if index > cap or (time.perf_counter() - started) * 1000 > budget:
+            break
+        if index not in grids:
+            continue
+        row_ys, col_xs = grids[index]
+
+        try:
+            tokens, _ = pages.tokens(index)
+        except Exception as exc:
+            logger.warning("OCR failed on page %d: %s", index, exc)
+            continue
+
+        cells = G.cells_from_tokens(tokens, row_ys, col_xs)
+        if not cells:
+            continue
+
+        if mapping is None:
+            found = T.find_header_row(cells)
+            if found:
+                mapping, header_index = found
+                body = cells[header_index + 1:]
+            else:
+                mapping = T.infer_columns(cells)
+                if not mapping:
+                    continue
+                body = cells
+        else:
+            body = cells
+
+        page_rows, carry = T.rows_to_transactions(body, mapping, index, carry,
+                                                  source="OCR")
+        out.extend(page_rows)
+
+    if carry:
+        from shared.bank_statement import tables as T2
+
+        out.extend(T2.flush(carry, len(images)))
+
+    if out:
+        from shared.bank_statement import tables as T3
+
+        out, swapped = T3.orient_movements(out)
+        if swapped:
+            logger.info("Debit/credit corrected by balance check (scanned).")
+    return out
+
+
+def _upright_pages() -> bool:
+    """BANK_STATEMENT_OCR_ANGLE_CLS=true restores RapidOCR's per-line angle classifier on statement pages."""
+    return (os.getenv("BANK_STATEMENT_OCR_ANGLE_CLS", "false") or "false").strip().lower() != "true"
+
+
+def native_columns_enabled() -> bool:
+    """BANK_STATEMENT_NATIVE_COLUMNS (default on): a native PDF's positioned text -> the column reader first."""
+    # OPT-IN (2026-10-14): 0.06-1.5 s instead of 9-22 s, but measured not yet exact on every layout (a partial
+    # 9-of-39-row read balanced on its own) -- off until the reader is proven on the real statements
+    return (os.getenv("BANK_STATEMENT_NATIVE_COLUMNS", "false") or "false").strip().lower() == "true"
+
+
+def extract_via_native_columns(path: str) -> list[Transaction]:
+    """
+    A NATIVE (text-layer) STATEMENT READ FROM ITS WORDS' POSITIONS -- no OCR, no pdfplumber (2026-10-14).
+
+    MEASURED: pdfplumber's table geometry is ~0.75 s of pure-Python CPU per page, so a 104-page native statement
+    took ~21 s (or was deferred to the queue with 0 rows). PyMuPDF gives every text line WITH its box in native
+    code; those lines are exactly what OCR gives a scanned page, so the same column reader (`layout.cells_for_page`
+    -> `rows_to_transactions`) builds the rows. The CALLER keeps these rows ONLY when every row has an amount and
+    agrees with the running balance; otherwise the table path runs exactly as before.
+    """
+    try:
+        from shared.bank_statement import fastpdf
+        from shared.bank_statement import layout as L
+        from shared.bank_statement import tables as T
+        from shared.document_agent.schemas import OCRToken
+    except ImportError:
+        return []
+    if not fastpdf.available():
+        return []
+    out: list[Transaction] = []
+    carry: dict | None = None
+    header: list | None = None
+    dated_pages: set[int] = set()
+    read_pages: set[int] = set()
+    try:
+        with fastpdf._fitz().open(path) as doc:
+            page_count = doc.page_count
+            for index, page in enumerate(doc, start=1):
+                if index > page_cap():
+                    return []                            # over the cap: the existing path decides
+                tokens = []
+                for block in page.get_text("dict").get("blocks", []):
+                    for line in block.get("lines", []):
+                        # ONE TOKEN PER TEXT LINE, as OCR gives a scanned page (the reader was built on those)
+                        text = " ".join(str(sp.get("text") or "").strip() for sp in line.get("spans", [])).strip()
+                        if text:
+                            x0, y0, x1, y1 = line["bbox"]
+                            tokens.append(OCRToken(text=text, confidence=1.0, x0=x0, y0=y0, x1=x1, y1=y1))
+                if any(_DATE_TOKEN.search(t.text) for t in tokens):
+                    dated_pages.add(index)
+                own = L.header_of(tokens)
+                if own is not None:
+                    header = list(own[0])
+                elif header is not None and tokens:
+                    # A CONTINUATION PAGE PRINTS NO HEADER (2026-10-14, a real 104-page statement): its rows sit
+                    # in the columns the last header set, so that header is placed just above this page's first line
+                    top = min(t.y0 for t in tokens)
+                    lift = (max(h.y1 for h in header) - min(h.y0 for h in header)) + 2
+                    tokens = [h.model_copy(update={"y0": top - lift - (h.y1 - h.y0), "y1": top - lift})
+                              for h in header] + tokens
+                found = L.cells_for_page(tokens)
+                if found is None:
+                    continue
+                cells, mapping = found
+                page_rows, carry = T.rows_to_transactions(cells, mapping, index, carry, source="TEXT")
+                if page_rows:
+                    read_pages.add(index)
+                out.extend(page_rows)
+    except Exception as exc:  # noqa: BLE001 - the table path reads it instead
+        logger.debug("Native column read failed: %s", type(exc).__name__)
+        return []
+    if carry:
+        out.extend(T.flush(carry, page_count))
+    if dated_pages - read_pages - {1}:
+        # A PAGE WITH DATED LINES GAVE NO ROWS: the reader lost part of the table -- never a partial read that
+        # balances on its own (a 9-of-39-row read did); the table path reads it instead
+        return []
+    if out:
+        out, _ = T.orient_movements(out)
+    return out
+
+
+_DATE_TOKEN = re.compile(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|\b\d{1,2}[ -](?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[ -]\d{2,4}\b",
+                         re.IGNORECASE)
+
+
+def _native_rows_trusted(rows: list[Transaction]) -> bool:
+    """Every row has a read amount and agrees with the running balance -- else the table path reads it."""
+    from shared.bank_statement import tables as T
+
+    if len(rows) < 2:
+        return False
+    disagreeing, missing = T.annotate_against_balance(list(rows))
+    return disagreeing == 0 and missing == 0 and sum(r.balance is not None for r in rows) >= 0.9 * len(rows)
+
+
+def extract_via_columns(path: str, started: float, only_pages: set[int] | None = None) -> list[Transaction]:
+    """
+    Read a scanned statement from where its words sit on the page.
+
+    THE PATH THE RULED ONE COULD NOT TAKE. `extract_via_grid` needs
+    three ruled rows and three ruled columns to place a token. On the
+    sample that failed, the ruled block was the account summary on
+    page 1; the three pages carrying transactions had one or two
+    printed rules between them and were skipped entirely. The OCR had
+    read them perfectly -- every date, narration and amount was in the
+    tokens -- and the pipeline reported that no table could be
+    reconstructed.
+
+    So this finds the table the way a reader does: the columns are
+    where the statement prints its own captions, and a row starts
+    wherever a date appears under the date caption.
+
+    THE SAME DESTINATION. It produces the cell rows
+    `rows_to_transactions` already consumes, so dates, amounts, the
+    debit/credit orientation and the balance check are the code they
+    always were.
+    """
+    try:
+        from pdf2image import convert_from_path
+
+        from shared.bank_statement import layout as L
+        from shared.bank_statement import tables as T
+        from shared.document_agent import preprocess as PP
+        from shared.document_agent.ocr import get_engine
+    except ImportError as exc:
+        logger.debug("Column extraction unavailable: %s", exc)
+        return []
+
+    pages = _scanned_pages(path, only_pages)
+    try:
+        images = pages.images()
+    except Exception as exc:
+        logger.warning("Could not rasterise PDF: %s", exc)
+        return []
+
+    out: list[Transaction] = []
+    carry: dict | None = None
+    cap = page_cap()
+    budget = time_budget_ms()
+    pages_read = 0
+    if (time.perf_counter() - started) * 1000 <= budget:
+        pages.prefetch([i for i in range(1, min(len(images), cap) + 1) if images[i - 1] is not None])
+
+    for index, image in enumerate(images, start=1):
+        if index > cap or (time.perf_counter() - started) * 1000 > budget:
+            break
+        if image is None:                      # not a page this read was asked for
+            continue
+
+        try:
+            tokens, _ = pages.tokens(index)
+        except Exception as exc:
+            logger.warning("OCR failed on page %d: %s", index, exc)
+            continue
+
+        found = L.cells_for_page(list(tokens))
+        if found is None:
+            # NOT A TRANSACTION PAGE. A summary or a letterhead has no
+            # date caption over two money captions, and is passed over
+            # rather than read as rows.
+            continue
+
+        cells, mapping = found
+        pages_read += 1
+        page_rows, carry = T.rows_to_transactions(cells, mapping, index, carry,
+                                                  source="OCR")
+        out.extend(page_rows)
+
+    if carry:
+        from shared.bank_statement import tables as T2
+
+        out.extend(T2.flush(carry, len(images)))
+
+    if out:
+        from shared.bank_statement import tables as T3
+
+        out, swapped = T3.orient_movements(out)
+        if swapped:
+            logger.info("Debit/credit corrected by balance check (columns).")
+
+    logger.info("Column reconstruction read %d transaction page(s), "
+                "%d row(s).", pages_read, len(out))
+    return out
+
+
+def _ocr_pages(path: str) -> list[str]:
+    """
+    Rasterise and OCR a small scanned PDF.
+
+    Deliberately bounded by the caller: this is only reached for documents
+    short enough that the cost is acceptable in a synchronous request.
+    """
+    try:
+        from pdf2image import convert_from_path
+
+        from shared.document_agent import preprocess as PP
+        from shared.document_agent.ocr import get_engine
+    except ImportError as exc:
+        logger.debug("Inline OCR unavailable: %s", exc)
+        return []
+
+    try:
+        images = convert_from_path(path, dpi=200)
+    except Exception as exc:
+        logger.warning("Could not rasterise PDF for inline OCR: %s", exc)
+        return []
+
+    import os
+
+    from shared.document_agent import scan_text
+
+    # Opt-in (BANK_STATEMENT_OCR_DESKEW=true) until measured to help: straighten a
+    # skewed photocopy before OCR. Off, the page is read exactly as before.
+    straighten = (os.getenv("BANK_STATEMENT_OCR_DESKEW", "false") or "false").lower() == "true"
+    engine = get_engine()
+    out: list[str] = []
+    for image in images:
+        try:
+            page = image.convert("RGB")
+            if straighten:
+                page = scan_text.deskew(scan_text.orient(page))
+            tokens, _ = engine.read_array(
+                PP.to_array(PP.standard(page))
+            )
+        except Exception as exc:
+            logger.warning("Inline OCR failed on a page: %s", exc)
+            out.append("")
+            continue
+        # Rebuild reading order: group tokens into lines by vertical position,
+        # because the row parser works from lines, not scattered tokens.
+        out.append(_tokens_to_lines(tokens))
+    return out
+
+
+def _tokens_to_lines(tokens) -> str:
+    """Group OCR tokens into text lines by vertical proximity."""
+    if not tokens:
+        return ""
+    ordered = sorted(tokens, key=lambda t: (t.cy, t.x0))
+    lines: list[list] = [[ordered[0]]]
+    for token in ordered[1:]:
+        last = lines[-1][-1]
+        tolerance = max(6.0, last.height * 0.6)
+        if abs(token.cy - last.cy) <= tolerance:
+            lines[-1].append(token)
+        else:
+            lines.append([token])
+    return "\n".join(
+        " ".join(t.text for t in sorted(line, key=lambda x: x.x0))
+        for line in lines
+    )
+
+
+def sample_stop(rows: list[Transaction]) -> int:
+    """The last page any row came from, or the projection sample size."""
+    pages = [r.page for r in rows if getattr(r, "page", None)]
+    return max(pages) if pages else projection_sample_pages() + 1
+
+
+def classify_source(pages: int, with_text: int) -> SourceKind:
+    if with_text == 0:
+        return SourceKind.SCANNED
+    if with_text < pages * 0.6:
+        return SourceKind.MIXED
+    return SourceKind.DIGITAL
+
+
+_BALANCE_CAPTION_RE = re.compile(
+    r"(?:opening|closing)\s+balance|open(?:ing)?\s+bal\b|clos(?:ing)?\s+bal\b"
+    r"|balance\s+(?:b/?f|c/?f|brought\s+forward|carried\s+forward|forward)"
+    r"|balance\s+at\s+end|^b/f\b|^c/f\b",
+    re.IGNORECASE,
+)
+_OPENING_ROW_RE = re.compile(
+    r"^\W*(?:balance\s+(?:b/?f|brought\s+forward|forward)|opening\s+balance|b/f)\b",
+    re.IGNORECASE,
+)
+
+
+def _rows_from_page(text: str, page_no: int) -> list[Transaction]:
+    """
+    Assemble transactions from one page.
+
+    A line beginning with a date opens a row; lines that follow without a date
+    are narration continuation and are folded into the open row. This is what
+    makes multi-line UPI and NEFT descriptions survive intact.
+    """
+    rows: list[Transaction] = []
+    current: dict | None = None
+
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        # A PRINTED BALANCE CAPTION IS NOT PART OF A ROW. "Opening Balance /
+        # 4,824.70" before row one and "Closing Balance / 229.70" after the
+        # last row print in the Balance column, and were being pulled into
+        # the neighbouring transaction's number window -- row one took the
+        # wrong side, the last row took the caption's figure as its amount.
+        # The caption closes the open row; its figure (on this line or the
+        # next) belongs to nobody.
+        if _BALANCE_CAPTION_RE.search(stripped):
+            if current:
+                rows.append(_finalise(current, page_no))
+            current = None
+            continue
+
+        date_text = P.is_transaction_start(stripped)
+        if date_text:
+            parsed = P.parse_date(date_text)
+            if parsed is None:
+                continue
+            if current:
+                rows.append(_finalise(current, page_no))
+
+            rest = stripped[len(date_text):].strip()
+            # A second leading date is the value date.
+            value_date = None
+            second = P.is_transaction_start(rest)
+            if second:
+                value_date = P.parse_date(second)
+                if value_date:
+                    rest = rest[len(second):].strip()
+
+            current = {
+                "date": parsed,
+                "value_date": value_date,
+                "narration_parts": [],
+                "amounts": [],
+                "line": rest,
+            }
+            _absorb(current, rest)
+        elif current is not None:
+            _absorb(current, stripped)
+
+    if current:
+        rows.append(_finalise(current, page_no))
+    return rows
+
+
+def _absorb(row: dict, text: str) -> None:
+    """Split a line into trailing amounts and leading narration."""
+    # Narration text is noisy -- UPI references, UTR numbers, timestamps --
+    # and _AMOUNT_RE's bare-digit fallback (fine for an isolated table cell)
+    # picks up fragments of all of it here. The stricter narration-safe
+    # pattern requires a decimal point or thousands grouping, which every
+    # genuine amount in these statements has and no reference number does.
+    amounts = [m for m in P._AMOUNT_IN_TEXT_RE.finditer(text)]
+    if amounts:
+        first_money = amounts[0].start()
+        narration = text[:first_money].strip()
+        for match in amounts:
+            value = P.parse_amount(match.group(0))
+            if value is not None:
+                row["amounts"].append(value)
+    else:
+        narration = text
+    narration = re.sub(r"\s+", " ", narration).strip(" -|")
+    if narration:
+        row["narration_parts"].append(narration)
+
+
+def _finalise(row: dict, page_no: int) -> Transaction:
+    """
+    Turn accumulated pieces into a transaction.
+
+    Column identity is inferred from position rather than guessed: on every
+    layout seen, the balance is the LAST money value on the row, and the
+    movement is the one before it. Which side that movement belongs to is left
+    to the reconciliation pass, which can compare against the running balance.
+    """
+    amounts: list[Decimal] = row["amounts"]
+    balance = amounts[-1] if amounts else None
+    movement = amounts[-2] if len(amounts) >= 2 else None
+
+    return Transaction(
+        date=row["date"],
+        value_date=row["value_date"],
+        narration=" ".join(row["narration_parts"])[:300],
+        debit=None,
+        credit=None,
+        balance=balance,
+        page=page_no,
+        reference=None,
+        amount_source="MISSING",
+        side_source="UNRESOLVED",
+        placement="LINE",
+    ) if movement is None else Transaction(
+        date=row["date"],
+        value_date=row["value_date"],
+        narration=" ".join(row["narration_parts"])[:300],
+        debit=movement,
+        credit=None,
+        balance=balance,
+        page=page_no,
+        reference=None,
+        amount_source="READ",
+        side_source="UNRESOLVED",          # settled by _assign_sides, from the balance
+        placement="LINE",
+    )
+
+
+def _assign_sides(rows: list[Transaction], previous: Decimal | None = None) -> int:
+    """
+    Decide debit vs credit from the running balance.
+
+    A movement is a credit when the balance rose and a debit when it fell.
+    THE MAGNITUDE IS NEVER TOUCHED: it is the figure read off the line. Only
+    the side comes from the balance, and the row records that
+    (side_source = BALANCE_DIRECTION). `previous` seeds row one with the
+    statement's PRINTED opening balance where it prints one; without it row
+    one's side stays UNRESOLVED. Returns the number of rows resolved.
+    """
+    resolved = 0
+    for row in rows:
+        movement = row.debit if row.debit is not None else row.credit
+        if movement is not None and row.balance is not None and previous is not None:
+            if row.balance > previous:
+                row.credit, row.debit = movement, None
+            else:
+                row.credit, row.debit = None, movement
+            row.side_source = "BALANCE_DIRECTION"
+            resolved += 1
+        if row.balance is not None:
+            previous = row.balance
+    return resolved
+
+
+def _lift_opening_rows(rows: list[Transaction]) -> tuple[list[Transaction], "Decimal | None"]:
+    """
+    A "balance forward" line printed AS A ROW is the statement's opening
+    balance, not a transaction: it has no movement. Left in, it is a row
+    with no readable amount and reconciliation cannot run. Taken out, its
+    balance is the printed opening figure (when the header prints none).
+    Returns the remaining rows and the first such balance.
+    """
+    kept: list[Transaction] = []
+    opening: Decimal | None = None
+    for row in rows:
+        if (row.debit is None and row.credit is None and row.balance is not None
+                and _OPENING_ROW_RE.search(row.narration or "")):
+            if opening is None:
+                opening = row.balance
+            continue
+        kept.append(row)
+    return kept, opening
+
+
+def _drop_date_outliers(
+    rows: list[Transaction],
+) -> tuple[list[Transaction], int]:
+    """
+    Remove rows whose date sits far outside the statement's own period.
+
+    A single misread year turns a six-month statement into a ten-year one
+    ("125 months covered" on a real HDFC file), which then corrupts the period
+    and any downstream averaging. The bulk of rows agree on the true window,
+    so the median month is a reliable anchor: anything more than a year away
+    from it is a parse error, not a transaction.
+    """
+    if len(rows) < 10:
+        return rows, 0
+
+    ordinals = sorted(r.date.toordinal() for r in rows)
+    median = ordinals[len(ordinals) // 2]
+    # BANK_STATEMENT_DATE_WINDOW_DAYS (default 400): a caller reading multi-year statements raises it for its own
+    # read (raised_limits), e.g. the credit bank verification agent; every other caller keeps the year-ish window
+    window = _int_env("BANK_STATEMENT_DATE_WINDOW_DAYS", 400)
+    kept = [r for r in rows if abs(r.date.toordinal() - median) <= window]
+    return kept, len(rows) - len(kept)
+
+
+def extract_bank_statement(path: str) -> BankStatementResult:
+    """Entry point. Digital statements parse here; scans are routed out."""
+    token = _PAGES.set(_ScannedPages(path))     # the grid and its column fallback share one rasterisation + OCR
+    try:
+        return _extract_bank_statement(path)
+    finally:
+        _PAGES.reset(token)
+
+
+def _extract_bank_statement(path: str) -> BankStatementResult:
+    started = time.perf_counter()
+
+    if not Path(path).exists():
+        return BankStatementResult(
+            status=ExtractionStatus.FAILED,
+            source_kind=SourceKind.SCANNED,
+            errors=[f"File not found: {path}"],
+        )
+
+    try:
+        texts, with_text = _page_texts(path)
+    except Exception as exc:
+        logger.exception("Could not open statement")
+        return BankStatementResult(
+            status=ExtractionStatus.FAILED,
+            source_kind=SourceKind.SCANNED,
+            errors=[f"Could not open PDF: {type(exc).__name__}: {exc}"],
+            processing_ms=round((time.perf_counter() - started) * 1000, 2),
+        )
+
+    pages = len(texts)
+    # PER PAGE (2026-11-02, page_routing.py): a page is read from its text layer or OCR'd by its own shape -- a
+    # scan with a typed header is a scan, and one scanned page among digital ones is read, not skipped
+    ocr_pages: list[int] = []
+    try:
+        from shared.bank_statement import page_routing as R
+
+        routed = R.inspect_pages(path)
+        ocr_pages = [pg.number for pg in routed if pg.route == R.OCR]
+        with_text = len(routed) - len(ocr_pages)
+        kind = (SourceKind.SCANNED if ocr_pages and not with_text else
+                SourceKind.MIXED if ocr_pages else SourceKind.DIGITAL)
+    except Exception as exc:  # noqa: BLE001 - the page count of the text layer, as before
+        logger.warning("Page routing unavailable (%s); routing by text length", type(exc).__name__)
+        kind = classify_source(pages, with_text)
+        ocr_pages = [i for i, t in enumerate(texts, start=1) if len(t.strip()) < MIN_CHARS_PER_PAGE] \
+            if kind is SourceKind.MIXED else []
+    joined = "\n".join(texts)
+
+    result = BankStatementResult(
+        status=ExtractionStatus.SUCCESS,
+        source_kind=kind,
+        bank=P.detect_bank(_header_text(texts)),
+        # Page one only. The holder is printed in the letterhead, and
+        # scanning the whole document would pick up a payee's name out of a
+        # transaction narration -- the other party, never the holder.
+        account_holder=_account_holder(path, texts),
+        account_number_masked=P.mask_account(joined),
+        pages=pages,
+        pages_with_text=with_text,
+    )
+
+    # A scanned statement is handled by extract_via_grid below, which OCRs
+    # each page once and places tokens into reconstructed table cells. An
+    # earlier full-page OCR pass here ran the recogniser a SECOND time on the
+    # same pages, doubling the cost and consuming the time budget the grid
+    # path then needed.
+
+    if kind is SourceKind.SCANNED and pages > inline_ocr_pages():
+        result.status = ExtractionStatus.REQUIRES_OCR
+        result.warnings.append(
+            f"No text layer on any of {pages} pages. A scan this size is "
+            "not read inside the upload; it is queued and read in the "
+            "background, and the case shows its progress."
+        )
+        result.processing_ms = round((time.perf_counter() - started) * 1000, 2)
+        return result
+
+    # Table extraction only applies to a PDF that carries a text layer.
+    # Running it on a scan finds nothing and burns the time budget that the
+    # OCR path then needs -- which left one two-page statement at 105s with
+    # zero rows.
+    rows: list[Transaction] = []
+    column_aware = False
+    if kind is SourceKind.SCANNED and pages <= inline_ocr_pages():
+        rows = extract_via_grid(path, started)
+        if rows:
+            column_aware = True
+            result.warnings.append(
+                f"Scanned statement: {pages} page(s) read by reconstructing "
+                "the printed table grid."
+            )
+    table_budget_exhausted = False
+    if not rows and kind is SourceKind.DIGITAL and native_columns_enabled():
+        native = extract_via_native_columns(path)
+        if _native_rows_trusted(native):
+            rows, column_aware = native, True
+            result.warnings.append("Rows read from the text layer's column positions.")
+    if not rows and kind is not SourceKind.SCANNED:
+        rows, table_budget_exhausted = extract_via_tables(path, started)
+        if rows:
+            column_aware = True
+            result.warnings.append("Rows read from table cells.")
+    cap = page_cap()
+    budget = time_budget_ms()
+    truncated_at: int | None = None
+
+    # THE RULED GRID IS TRIED FIRST AND IS NOT ALWAYS THERE. When it
+    # produced nothing, the page is read from the positions of the
+    # words instead. Second, not first: where a statement IS ruled,
+    # the rules are the better evidence, and that path is unchanged.
+    if kind is SourceKind.SCANNED and not rows:
+        rows = extract_via_columns(path, started)
+        if rows:
+            column_aware = True
+            result.warnings.append(
+                "Rows reconstructed from the printed column positions.")
+
+    if kind is SourceKind.SCANNED and not rows:
+        result.status = ExtractionStatus.REQUIRES_OCR
+        result.warnings.append(
+            f"Scanned statement of {pages} page(s): the page was read but "
+            "no table of transactions could be reconstructed from it. It is "
+            "queued for another attempt in the background; if that also "
+            "fails the document needs manual review."
+        )
+        result.processing_ms = round((time.perf_counter() - started) * 1000, 2)
+        return result
+
+    # Text-line parsing is a fallback only: it runs when the PDF had no
+    # usable table structure. Column positions are always preferred.
+    #
+    # IT IS NOT A FALLBACK FOR RUNNING OUT OF TIME. A statement whose table
+    # path was abandoned mid-way HAS a table; parsing its text lines instead
+    # produces rows whose debit and credit sides are inferred from the running
+    # balance rather than read from the bank's own columns, and on a long
+    # statement that inference goes wrong. The arithmetic then fails, and the
+    # failure reads as "this statement does not add up" -- an adverse finding
+    # about the customer's document, caused entirely by our own clock.
+    #
+    # Measured on samples/real_batch/bank_generic.pdf:
+    #
+    #   budget 25000ms  table path completes   1196 rows   reconciles
+    #   budget  8000ms  table path completes    159 rows   reconciles
+    #   budget  3000ms  table path abandoned   1339 rows   DOES NOT reconcile
+    #
+    # The third row is not a worse statement. It is the same statement read
+    # badly, and before this it was reported as a reconciliation failure.
+    # A TABLE THAT WILL NOT BE READ IN TIME IS QUEUED, NOT TRUNCATED.
+    #
+    # Whether the path stopped on its projection (no rows) or ran out
+    # mid-way (some rows), the rows in hand are an incomplete reading of a
+    # table the document does have. Scoring them produced REVIEW /
+    # VERIFICATION_TIMEOUT for a statement whose complete parse reconciles
+    # -- a verdict about our clock, delivered as a verdict about the
+    # document. Those rows are discarded, and the statement goes to the
+    # durable queue: the worker runs this same extractor with its own
+    # budget, persists the complete result, and the same deterministic
+    # rules score it. REQUIRES_OCR is the status the queue is keyed on
+    # ("needs the background reader"); the verification layer words it
+    # for a digital statement, which is not a scan.
+    # NOT for a statement over the page cap: the worker has the same cap
+    # and could never finish it, so it keeps the existing PARTIAL path.
+    if (table_budget_exhausted and kind is not SourceKind.SCANNED
+            and pages <= page_cap()):
+        result.status = ExtractionStatus.REQUIRES_OCR
+        result.transactions = []
+        result.transaction_count = 0
+        result.warnings = [w for w in result.warnings
+                           if w != "Rows read from table cells."]
+        result.warnings.append(
+            f"Stopped after page {min(sample_stop(rows), pages)} of {pages}: "
+            "at the measured pace this statement's table cannot be read "
+            "within the upload's time budget. It has been queued and is read "
+            "in full in the background. This is a limit of this service, "
+            "not a finding about the statement."
+        )
+        result.processing_ms = round((time.perf_counter() - started) * 1000, 2)
+        return result
+
+    if table_budget_exhausted and not rows:
+        result.status = ExtractionStatus.PARTIAL
+        result.warnings.append(
+            "Parsing stopped before the table could be read: the time budget "
+            "ran out. No transactions were extracted. This is a limit of this "
+            "service, not a finding about the statement -- raise "
+            "BANK_STATEMENT_TIME_BUDGET_MS or route the document to the "
+            "asynchronous extraction queue."
+        )
+        result.processing_ms = round((time.perf_counter() - started) * 1000, 2)
+        return result
+
+    ocr_set = set(ocr_pages)
+    text_source = [] if rows else [(i, t) for i, t in enumerate(texts, start=1) if i not in ocr_set]
+    # The budget for THIS loop starts now. Time already spent rasterising and
+    # OCR'ing is real work, not overrun, and charging it here meant a scanned
+    # statement was truncated before a single page was parsed.
+    parse_started = time.perf_counter()
+    for index, text in text_source:
+        if index > cap:
+            truncated_at = index - 1
+            break
+        if (time.perf_counter() - parse_started) * 1000 > budget:
+            truncated_at = index - 1
+            break
+        if len(text.strip()) < MIN_CHARS_PER_PAGE:
+            continue
+        rows.extend(_rows_from_page(text, index))
+    # A MIXED STATEMENT'S SCANNED PAGES ARE READ (2026-11-02, audit G1): before, they were counted as unread and their
+    # transactions were missing from a statement that otherwise reported success
+    unread_pages: list[int] = []
+    if kind is SourceKind.MIXED and ocr_pages:
+        if len(ocr_pages) <= inline_ocr_pages():
+            extra = (extract_via_grid(path, started, only_pages=ocr_set)
+                     or extract_via_columns(path, started, only_pages=ocr_set))
+            read = {r.page for r in extra}
+            unread_pages = [i for i in ocr_pages if i not in read]
+            if extra:
+                rows.extend(extra)
+                result.warnings.append(f"{len(read)} scanned page(s) of this statement read by OCR.")
+        else:
+            unread_pages = list(ocr_pages)
+    rows.sort(key=lambda r: (r.date, r.page))
+    rows, dropped = _drop_date_outliers(rows)
+
+    # Sides are inferred from the running balance ONLY for rows that came from
+    # text-line parsing. Rows read from table cells or a reconstructed grid
+    # already carry the bank's own debit and credit columns, and re-deriving
+    # them made correct output look unresolved: 27 verified rows were reported
+    # as "resolved for 17 of 27" and the whole statement marked PARTIAL.
+    # THE BASELINE COMES FROM THE DOCUMENT WHERE THE DOCUMENT STATES IT --
+    # a printed opening caption, or a movement-free "balance forward" row.
+    # Read first, so the text path can settle row one's side against it.
+    printed_opening = P.find_printed_opening_balance(joined)
+    rows, lifted_opening = _lift_opening_rows(rows)
+    if printed_opening is None and lifted_opening is not None:
+        printed_opening = lifted_opening
+
+    resolved = len(rows) if column_aware else _assign_sides(rows, printed_opening)
+
+    result.transactions = rows
+    result.transaction_count = len(rows)
+
+    if rows:
+        result.period = StatementPeriod(
+            start=rows[0].date,
+            end=rows[-1].date,
+            months_covered=round((rows[-1].date - rows[0].date).days / 30.44, 1),
+        )
+        # NOTHING IS DERIVED. Every debit and credit below is a figure read
+        # off the document; where one could not be read it is None and the
+        # row says MISSING. The balance is used to CHECK the rows, never to
+        # fill them.
+        from shared.bank_statement.tables import annotate_against_balance
+
+        disagreeing, missing = annotate_against_balance(rows, printed_opening)
+        result.rows_disagreeing_with_balance = disagreeing
+        result.rows_missing_amount = missing
+        result.rows_balance_ordered = sum(
+            1 for r in rows if r.placement == "BALANCE_ORDERED")
+        unresolved_order = sum(1 for r in rows if r.placement == "UNRESOLVED_ORDER")
+        if unresolved_order:
+            result.warnings.append(
+                f"{unresolved_order} row(s) of a borderless table could not be "
+                "placed in column order; their amounts may sit on the wrong row.")
+
+        from shared.bank_statement.tables import serial_gaps
+
+        result.rows_not_read = serial_gaps(rows)
+        if kind is SourceKind.MIXED:
+            result.pages_unread = len(unread_pages)
+
+        balances = [r.balance for r in rows if r.balance is not None]
+        if balances:
+            if printed_opening is not None:
+                opening = printed_opening
+            else:
+                # Nothing printed: the first row's balance is the balance
+                # AFTER that transaction, so the baseline is that figure with
+                # the first movement removed. Using it directly left
+                # reconciliation short by exactly the first row's amount.
+                first = next((r for r in rows if r.balance is not None), None)
+                opening = balances[0]
+                if first is not None:
+                    opening = (
+                        opening
+                        - (first.credit or Decimal(0))
+                        + (first.debit or Decimal(0))
+                    )
+            result.opening_balance = opening
+            result.opening_balance_printed = printed_opening is not None
+            result.closing_balance = balances[-1]
+        result.total_credit = sum(
+            (r.credit for r in rows if r.credit is not None), Decimal(0)
+        )
+        result.total_debit = sum(
+            (r.debit for r in rows if r.debit is not None), Decimal(0)
+        )
+        from shared.bank_statement.tables import reconcile
+
+        # The one check a wrong column map cannot survive: if the movements
+        # do not explain the change in balance, the parse is not trustworthy.
+        printed = P.find_printed_closing_balance(joined)
+        verdict, reason = reconcile(
+            result.opening_balance,
+            result.closing_balance,
+            result.total_credit,
+            result.total_debit,
+            printed_closing=printed,
+            truncated=truncated_at is not None or table_budget_exhausted,
+            reached_end=P.has_end_marker(joined),
+            missing_amounts=result.rows_missing_amount,
+            disagreeing_rows=result.rows_disagreeing_with_balance,
+            rows_not_read=result.rows_not_read,
+            pages_unread=result.pages_unread,
+            scanned=kind is SourceKind.SCANNED,
+            # Every page of the file was read and nothing cut the parse
+            # short, so there is no unread tail for rows to be missing from.
+            # Independent of whether this bank prints a closing balance or
+            # an end-of-statement line, which is the point.
+            parsed_to_last_page=(
+                truncated_at is None
+                and not table_budget_exhausted
+                and pages <= cap
+            ),
+        )
+        result.balance_reconciles = verdict
+        result.reconciliation = ("RECONCILED" if verdict is True
+                                 else "MISMATCH" if verdict is False else "INCONCLUSIVE")
+        if reason:
+            result.warnings.append(f"Not verified: {reason}")
+        if verdict is not True:
+            # An unverified statement must never read as complete.
+            result.status = ExtractionStatus.PARTIAL
+
+    if table_budget_exhausted and truncated_at is None:
+        result.warnings.append(
+            "The table parse was cut short by the time budget, so the rows "
+            "below are incomplete and completeness could not be established. "
+            "Not a finding about the statement."
+        )
+
+    if truncated_at is not None:
+        result.status = ExtractionStatus.PARTIAL
+        result.warnings.append(
+            f"Stopped after page {truncated_at} of {pages}: hit the page cap "
+            f"({cap}) or the {budget} ms budget. Rows up to that point are "
+            "returned; raise BANK_STATEMENT_MAX_PAGES or route the document "
+            "to the asynchronous queue for a full parse."
+        )
+
+    if dropped:
+        result.warnings.append(
+            f"{dropped} row(s) dropped: date far outside the statement period, "
+            "which indicates a misread rather than a transaction."
+        )
+
+    if not rows:
+        result.status = ExtractionStatus.PARTIAL
+        result.warnings.append("Text layer present but no transaction rows recognised.")
+    elif result.balance_reconciles:
+        # The running balance already proves every movement is on the correct
+        # side. The older per-row counter belongs to the text-parsing path and
+        # under-reports on the grid path, which was marking a fully reconciled
+        # statement PARTIAL.
+        result.status = ExtractionStatus.SUCCESS
+    elif resolved < len(rows) * 0.8:
+        result.status = ExtractionStatus.PARTIAL
+        result.warnings.append(
+            f"Debit/credit side resolved for {resolved} of {len(rows)} rows; "
+            "the running balance does not reconcile, so treat these rows as "
+            "unverified."
+        )
+
+    if kind is SourceKind.MIXED and unread_pages:
+        # NEVER AN APPARENT SUCCESS: pages that could not be read make the reading partial
+        result.pages_unread = len(unread_pages)
+        if result.status is ExtractionStatus.SUCCESS:
+            result.status = ExtractionStatus.PARTIAL
+        result.warnings.append(
+            f"{len(unread_pages)} of {pages} page(s) could not be read (no text layer, OCR found no table): "
+            f"pages {', '.join(map(str, unread_pages[:20]))}."
+        )
+
+    result.processing_ms = round((time.perf_counter() - started) * 1000, 2)
+    return result
+
+
+__all__ = ["extract_bank_statement", "classify_source"]

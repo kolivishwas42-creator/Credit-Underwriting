@@ -1,0 +1,39 @@
+# Residence / office verification -- the rule defaults (data, never code).
+#
+# These are the DEFAULTS: db/schema.py seeds the same values into residence_rule_configs / office_rule_configs once,
+# and from then on enabled / criticality / weight / name / rule_id come from the database (PUT /rule-configs, the
+# frontend "Rule Config" tab). The defaults are used again only when a config table is empty.
+# tests/test_rules.py checks that the seed migration and this file agree.
+
+rules:
+  RESIDENCE:
+    RULE_01: { enabled: true,  rule_id: RES-001, name: "Vendor verification status",        criticality: HIGH,     weight: 25 }
+    RULE_02: { enabled: true,  rule_id: RES-002, name: "Neighbour confirmation",            criticality: MEDIUM,   weight: 10 }
+    RULE_03: { enabled: true,  rule_id: RES-003, name: "Declared address confirmation",     criticality: HIGH,     weight: 20 }
+    RULE_04: { enabled: true,  rule_id: RES-004, name: "Negative area flag",                criticality: HIGH,     weight: 20 }
+    RULE_05: { enabled: true,  rule_id: RES-005, name: "Vendor-reported political link",    criticality: MEDIUM,   weight: 10 }
+    RULE_06: { enabled: true,  rule_id: RES-006, name: "Name plate visibility",             criticality: LOW,      weight: 5 }
+    RULE_07: { enabled: true,  rule_id: RES-007, name: "Community-dominated area context",  criticality: LOW,      weight: 0 }
+    RULE_08: { enabled: true,  rule_id: RES-008, name: "Corrected address comparison",      criticality: HIGH,     weight: 20 }
+    RULE_09: { enabled: true,  rule_id: RES-009, name: "Vendor final status",               criticality: HIGH,     weight: 25 }
+    RULE_10: { enabled: false, rule_id: RES-010, name: "Status and findings consistency",   criticality: CRITICAL, weight: 30 }
+  OFFICE:
+    RULE_01: { enabled: true,  rule_id: OFF-001, name: "Vendor verification status",        criticality: HIGH,     weight: 25 }
+    RULE_02: { enabled: true,  rule_id: OFF-002, name: "Neighbour confirmation",            criticality: MEDIUM,   weight: 10 }
+    RULE_03: { enabled: true,  rule_id: OFF-003, name: "Declared address confirmation",     criticality: HIGH,     weight: 20 }
+    RULE_04: { enabled: true,  rule_id: OFF-004, name: "Negative area flag",                criticality: HIGH,     weight: 20 }
+    RULE_05: { enabled: true,  rule_id: OFF-005, name: "Vendor-reported political link",    criticality: MEDIUM,   weight: 10 }
+    RULE_06: { enabled: true,  rule_id: OFF-006, name: "Name plate visibility",             criticality: LOW,      weight: 5 }
+    RULE_07: { enabled: true,  rule_id: OFF-007, name: "Community-dominated area context",  criticality: LOW,      weight: 0 }
+    RULE_08: { enabled: true,  rule_id: OFF-008, name: "Corrected address comparison",      criticality: HIGH,     weight: 20 }
+    RULE_09: { enabled: true,  rule_id: OFF-009, name: "Vendor final status",               criticality: HIGH,     weight: 25 }
+    RULE_10: { enabled: true,  rule_id: OFF-010, name: "Status and findings consistency",   criticality: CRITICAL, weight: 30 }
+
+# the order rules are listed in (most critical first)
+criticality_order: { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 }
+
+# the optional numeric risk score (sum of the weights of the risk-contributing issues, capped). Rule outcomes are
+# returned either way; risk_score is null while disabled.
+risk_score:
+  enabled: false
+  max: 100

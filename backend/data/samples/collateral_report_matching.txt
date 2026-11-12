@@ -1,0 +1,17 @@
+Case number: UI-CHECK
+Applicant names: Riya Shinde, ZZQPC1000Q
+Owner/Transferor Names: Riya Kumar Shinde, Riya Shinde
+Property Address: Property 18, synthetic address
+District/State: Pune, Maharashtra
+Debtor Based Search
+Results : 1 record found
+Borrower name:
+Riya Kumar Shinde, Riya Shinde
+Charge details
+City/Town/Village: Pune
+State/UT: Maharashtra
+Pin Code: 244308
+House/Flat Number/Unit No: Property 18
+Security Interest ID: SI-UI
+Satisfaction Status: Satisfied
+Holder details

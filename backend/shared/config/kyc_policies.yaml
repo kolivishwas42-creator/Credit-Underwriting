@@ -1,0 +1,346 @@
+# ===========================================================================
+# KYC POLICY
+# ===========================================================================
+# Every threshold the KYC Agent applies lives here. None of them are written
+# into the matching logic, so a credit policy change is a config change and is
+# visible in review rather than buried in code.
+#
+# A check can be:
+#   enabled  false -> the check is SKIPPED and contributes nothing
+#   blocking false -> the check may still REVIEW/FAIL, but cannot by itself
+#                     drive the overall verdict below REVIEW
+#
+# ---------------------------------------------------------------------------
+# WHY ORDINARY IDENTITY MISMATCHES ARE NON-BLOCKING
+# ---------------------------------------------------------------------------
+# Documents disagreeing is NOT evidence of fraud, and this agent cannot tell
+# the difference between the two things that actually cause it:
+#
+#   a genuine applicant  -- a married name, a corrected date of birth, an
+#                           initial expanded, a transliteration, a stale
+#                           address, a document issued years apart
+#   a bad application    -- someone else's document in the bundle
+#
+# Only a human can. So a mismatch routes the case to one, and the finding is
+# reported in full -- which documents, which field, what each of them said --
+# rather than being converted into an automatic rejection nobody can appeal.
+#
+# THE BLOCKING MECHANISM IS DELIBERATELY KEPT. Setting blocking: true on a
+# check restores its power to drive the overall verdict to FAIL, and a FAIL
+# rolls up to decision REJECT. That is how a genuine business or risk rule is
+# expressed. What changed is the DEFAULT for ordinary document-to-document
+# disagreement, not the ability to define a blocking condition.
+#
+# The resulting policy, stated once and applied deterministically:
+#
+#   check FAILs, blocking: false  ->  overall REVIEW  ->  decision REVIEW
+#                                                     ->  MANUAL_REVIEW
+#   check FAILs, blocking: true   ->  overall FAIL    ->  decision REJECT
+#
+# The per-check status is NOT capped: a failed check still reports FAIL, with
+# its reason codes, sources and the value each document carried. Only its
+# effect on the overall verdict is bounded.
+#
+# ---------------------------------------------------------------------------
+# cpa_gate -- WHICH CHECKS MUST HAVE PASSED TO LEAVE FOS FOR CPA (2026-10-06)
+# ---------------------------------------------------------------------------
+#   cpa_gate true  -> the FOS -> CPA gate requires this check to be PASS for
+#                     every party on the case (not REVIEW, FAIL or SKIPPED)
+#   cpa_gate false -> not required (absent means false)
+# Separate from `blocking`: `blocking` shapes the KYC verdict, `cpa_gate` only
+# the stage gate. Read by shared/los/kyc_gate.py and ENFORCED ONLY while
+# LOS_FOS_CPA_KYC_RULE=true (default off). UNCONFIRMED, like this policy.
+# ===========================================================================
+
+policy_version: "1.0.0"
+signed_off: false
+
+# ---------------------------------------------------------------------------
+# SOURCES (FOS plan section 4) -- which documents feed KYC, and which extracted keys carry each value.
+# Read by shared/los/mapping.py (cross-document KYC) and profile_match.py (application vs documents).
+# Compared today (2026-10-08): PAN, DRIVING_LICENCE, VOTER_ID, PASSPORT (identity) and SALARY_SLIP,
+# BANK_STATEMENT, ITR (financial -- the financial agent hands the holder / employee name over as `name`).
+# NOT compared: AADHAAR -- no Aadhaar extractor exists, so no value ever reaches KYC (open item). A type listed
+# here that the KYC agent does not know is ignored, never invented.
+# ---------------------------------------------------------------------------
+sources:
+  document_types: [PAN, DRIVING_LICENCE, VOTER_ID, PASSPORT, SALARY_SLIP, BANK_STATEMENT, ITR]
+  name_fields: [name, employee_name, account_holder, holder_name]
+  father_name_fields: [father_name, guardian_name]
+  pan_fields: [pan_number, pan]
+
+# ---------------------------------------------------------------------------
+# NAME
+# ---------------------------------------------------------------------------
+# Scores come from the deterministic matcher in shared/services/name_match.py:
+# exact 1.0, token-set 0.98, initials 0.95, otherwise character similarity.
+name:
+  enabled: true
+  # Non-blocking: names legitimately differ across a person's documents.
+  # A disagreement goes to a reviewer with both values attached.
+  blocking: false
+  cpa_gate: true
+  # At or above this, two names are the same person.
+  match_threshold: 0.85
+  # Between review_threshold and match_threshold the answer is uncertain and
+  # goes to a human rather than being decided either way.
+  review_threshold: 0.70
+
+# ---------------------------------------------------------------------------
+# DATE OF BIRTH
+# ---------------------------------------------------------------------------
+# Compared exactly after normalisation. A date of birth does not have
+# near-misses: two documents either agree or they disagree, and a disagreement
+# is a hard stop. A MISSING date is never inferred from another document.
+dob:
+  enabled: true
+  # Non-blocking. A date of birth has no near-misses -- two documents either
+  # agree or they do not -- and a disagreement is still reported as a hard
+  # FAIL on the check itself. What it no longer does is reject the applicant
+  # without a human ever seeing it.
+  blocking: false
+  cpa_gate: true
+
+# ---------------------------------------------------------------------------
+# ADDRESS
+# ---------------------------------------------------------------------------
+# Compared component by component, not as raw strings: documents abbreviate
+# and reorder address lines constantly, so string equality would fail almost
+# every genuine applicant.
+#
+# Weights express how much each component says about "same address". A pincode
+# agreeing is strong evidence; a city agreeing is weak, because most applicants
+# in a batch share one.
+address:
+  enabled: true
+  blocking: false
+  cpa_gate: true
+  pass_score: 0.80
+  review_score: 0.55
+  weights:
+    pincode: 0.30
+    house: 0.20
+    street: 0.15
+    locality: 0.15
+    city: 0.12
+    state: 0.08
+  # Component strings at or above this similarity count as agreeing.
+  component_threshold: 0.85
+
+# ---------------------------------------------------------------------------
+# PAN
+# ---------------------------------------------------------------------------
+# Format is validated with the same rule the Document Agent uses. Values are
+# compared as read; nothing is repaired here beyond case and whitespace.
+pan:
+  enabled: true
+  # Non-blocking. Two documents quoting different PANs is a serious finding
+  # and is reported as FAIL with both values, but it is a reviewer's call --
+  # a mistyped PAN on a payslip is not the same thing as a false identity.
+  blocking: false
+  cpa_gate: true
+
+# ---------------------------------------------------------------------------
+# INCOME
+# ---------------------------------------------------------------------------
+# Monthly figures are annualised before comparison.
+#
+# IMPORTANT: bank credits are NOT guaranteed salary. A statement's average
+# monthly credit includes transfers, refunds and reimbursements, so it is
+# expected to sit ABOVE declared salary. The comparison basis is reported on
+# every result so a reviewer reads the number correctly.
+income:
+  enabled: true
+  blocking: false
+  # Excluded from the FOS -> CPA gate for now: income is often unavailable at FOS.
+  cpa_gate: false
+  months_per_year: 12
+  # Percentage difference between two annualised figures, relative to the
+  # larger of the two.
+  pass_variance_pct: 25.0
+  review_variance_pct: 50.0
+  # Figures below this are treated as not meaningfully comparable rather than
+  # producing enormous percentage differences on rounding noise.
+  min_comparable_annual: 1000.0
+
+# ---------------------------------------------------------------------------
+# OVERALL DECISION
+# ---------------------------------------------------------------------------
+decision:
+  # Fewer comparable sources than this and the result cannot be a PASS: there
+  # was nothing to cross-check against.
+  min_sources_for_pass: 2
+  # A PASS needs at least ONE identity document among the sources (2026-10-13). Without one -- e.g. a salary
+  # slip and a bank statement whose names agree -- the documents may agree with each other but nothing
+  # establishes WHO the applicant is: PENDING / IDENTITY_DOCUMENT_MISSING, never PASS. Empty list = off.
+  identity_document_types: [PAN, DRIVING_LICENCE, VOTER_ID, PASSPORT, AADHAAR]
+
+# ---------------------------------------------------------------------------
+# FATHER'S NAME
+# ---------------------------------------------------------------------------
+# Corroborating evidence, not the identity itself. It is printed on fewer
+# documents than the applicant's own name and is read less reliably, so it
+# carries its own thresholds and a small weight in the overall score.
+#
+# Non-blocking for the same reason every other identity check is: two
+# documents disagreeing about a father's name is a reason to involve a human,
+# not a finding against the applicant.
+father_name:
+  enabled: true
+  blocking: false
+  cpa_gate: true
+  match_threshold: 0.85
+  review_threshold: 0.70
+
+# ---------------------------------------------------------------------------
+# FIELD WEIGHTS -- how the overall score is composed
+# ---------------------------------------------------------------------------
+# The overall score is the weighted mean of the field match scores, over the
+# fields that were ACTUALLY COMPARED. A skipped field is dropped and the
+# remaining weights are renormalised, so a bundle that happens not to carry a
+# father's name is neither rewarded nor punished for the gap.
+#
+# Weights express how much each field says about "same person":
+#
+#   NAME           the primary identifier a human reads
+#   DATE_OF_BIRTH  no near-misses; two documents agree or they do not
+#   PAN_NUMBER     a government-issued unique identifier
+#   FATHER_NAME    corroborating; often absent, often read poorly
+#   ADDRESS        weakest -- people move, and documents go stale
+#
+# INCOME is weighted 0 deliberately. It is a financial consistency signal,
+# not an identity one, and letting it move an identity score would mean a
+# salary that disagreed with a bank statement reading as "possibly not the
+# same person". It is still computed, still reported, and still visible.
+fields:
+  weights:
+    NAME: 35
+    DATE_OF_BIRTH: 30
+    PAN_NUMBER: 25
+    FATHER_NAME: 5
+    ADDRESS: 5
+    INCOME: 0
+
+# ---------------------------------------------------------------------------
+# CONFIDENCE
+# ---------------------------------------------------------------------------
+# CONFIDENCE IS NOT MATCH SCORE.
+#
+#   match_score  how closely the available values match EACH OTHER
+#   confidence   how far that answer can be relied on
+#
+# They come apart in both directions, and that is the point:
+#
+#   two cleanly-read names that agree exactly    match 100, confidence high
+#   two barely-legible names that agree exactly  match 100, confidence LOW
+#   two cleanly-read names that plainly differ   match 0,   confidence HIGH
+#   a clean and a barely-legible name, differing match 0,   confidence LOW
+#
+# The last two are why a single number will not do: the first is a finding a
+# reviewer should act on, the second is probably a misread.
+#
+# Confidence starts at a base set by the COMPARISON METHOD -- what the matcher
+# actually did -- and has named penalties deducted. Every adjustment appears
+# in the result's `confidence_factors`, so the number is always answerable.
+confidence:
+  # Starting point per comparison method.
+  method_base:
+    CANONICAL: 99      # a structured identifier compared exactly: date, PAN
+    EXACT: 98          # identical after normalisation
+    TOKEN_SET: 94      # same tokens, different order
+    NO_MATCH: 90       # a clear disagreement is itself a reliable finding
+    COMPONENT: 88      # an address, compared component by component
+    INITIALS: 86       # one side abbreviates the other
+    FUZZY: 74          # character similarity, and nothing stronger
+    UNKNOWN: 70
+
+  penalties:
+    # Two documents is the minimum that proves anything; it is not the
+    # corroboration a third would give.
+    two_sources_only: 4
+    # Scaled by the fraction of the bundle that did not carry the field.
+    incomplete_coverage: 12
+    # The score landed near a decision threshold, so the verdict could flip.
+    near_threshold: 10
+    # Scaled by how far the weakest extraction quality fell below the floor.
+    low_extraction_quality: 30
+    # No extraction quality was reported at all. A small honest deduction
+    # rather than assuming the field was read well.
+    quality_unknown: 5
+
+  # An extractor quality reading below this counts as a poor read.
+  low_quality_below: 0.60
+  # How close to a threshold is too close to be sure of. 0-1 scale.
+  ambiguity_margin: 0.05
+
+  # How much each document type is worth as a source. A PAN card is the
+  # authority on a PAN number; a salary slip quoting one is repeating what
+  # somebody typed.
+  source_reliability:
+    PAN: 1.00
+    PASSPORT: 1.00
+    AADHAAR: 0.97
+    DRIVING_LICENCE: 0.97
+    VOTER_ID: 0.95
+    ITR: 0.90
+    BANK_STATEMENT: 0.85
+    SALARY_SLIP: 0.80
+    APPLICATION: 0.75
+
+# ---------------------------------------------------------------------------
+# APPLICATION NAME vs VERIFIED PAN (2026-10-10, owner: "match the application name against the name verified from
+# PAN and reflect it in KYC status"). Read by shared/los/kyc_gate.py as the check APPLICATION_NAME for every
+# party. NOT a second matcher: the comparison is profile_match's NAME comparator (shared/services/name_match).
+#
+#   source       only a PAN document whose verification PASSED (status VERIFIED) counts; OCR alone never does
+#   outcomes     MATCH (comparator PASS)            -> gate PASS
+#                PARTIAL (comparator PARTIAL)       -> gate REVIEW   (a person decides: initials, order, spelling)
+#                MISMATCH (comparator FAIL)         -> gate BLOCKED  (a discrepancy, not an accusation of fraud)
+#                PENDING (no verified PAN yet)      -> gate NOT_READY
+#                UNVERIFIABLE (no name on the application, or none read from the verified PAN)
+#                                                   -> gate REVIEW
+#   cpa_gate     whether the FOS -> CPA gate requires MATCH (as for the other cpa_gate checks above)
+# Nothing is stored: the outcome is computed from the case's own records on every read, so a re-upload or an
+# edited name is reflected at once and no second copy of a name is kept.
+# ---------------------------------------------------------------------------
+application_name:
+  enabled: true
+  cpa_gate: true
+  # extraction keys that carry the PAN holder's name, in order
+  pan_name_fields: [name, name_on_card, holder_name, full_name]
+  # ONLY THESE comparator methods make a MATCH here (2026-10-10, measured): the shared comparator calls
+  # "Arjun Mehra" vs "ARJUN MEHTA" a FUZZY match (91) and "A Mehta" an INITIALS match (95) -- right for linking
+  # documents, too lenient to call an identity VERIFIED. Any other method that passed becomes PARTIAL (a person
+  # decides). The comparator itself is unchanged.
+  match_methods: [EXACT, TOKEN_SET]
+
+# ---------------------------------------------------------------------------
+# PROPERTY OWNERSHIP (industry default, 2026-10-11; UNCONFIRMED until the business signs it off)
+# ---------------------------------------------------------------------------
+# A loan secured on property needs the property's owner -- the BUYER on its sale deed -- to be the applicant or a
+# co-applicant (a co-owner who is not a party cannot be bound by the mortgage). Read from the deed's released
+# extraction (buyer_names), compared with each party's application name by the same NAME comparator as the
+# application-name check. Only EXACT / TOKEN_SET make a MATCH; a lenient match is PARTIAL (a person confirms).
+#   MATCH -> PASS   PARTIAL -> REVIEW   MISMATCH -> mismatch_status   no deed yet -> NOT_READY (where required)
+property_ownership:
+  enabled: true
+  # the products whose FOS checklist REQUIRES the deed: there the check is counted for the FOS -> CPA gate;
+  # elsewhere it is shown when a deed is on file, never counted
+  products: [LOAN_AGAINST_PROPERTY]
+  cpa_gate: true
+  mismatch_status: BLOCKED
+  buyer_fields: [buyer_names]
+  match_methods: [EXACT, TOKEN_SET]
+
+# ---------------------------------------------------------------------------
+# EMPLOYER CONSISTENCY (industry default, 2026-10-11; UNCONFIRMED)
+# ---------------------------------------------------------------------------
+# The employer printed on the applicant's income / employment documents (salary slip, employment proof) should be
+# one organisation. Compared after removing the legal-form words below ("ABC Technologies Pvt Ltd" = "ABC
+# Technologies Private Limited"). A difference is a REVIEW for a person (a job change, a group company), never a
+# block: it is not counted for the gate.
+employer_consistency:
+  enabled: true
+  cpa_gate: false
+  employer_fields: [employer_name, employer, company_name]
+  legal_form_words: [pvt, private, ltd, limited, llp, inc, incorporated, co, company, corp, corporation, the]

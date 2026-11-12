@@ -1,0 +1,22 @@
+# secrets and local settings
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# runtime data (documents, reports, logs) -- never in the repository
+backend/runtime/
+
+# frontend build output and dependencies
+node_modules/
+dist/
+*.tsbuildinfo
+*.zip
+.vscode/
+.idea/

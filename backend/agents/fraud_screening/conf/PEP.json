@@ -1,0 +1,370 @@
+{
+  "requestId": "99188327-91db-43ec-a37f-8dae52a1a058",
+  "result": {
+  "legislativeAssembly": [],
+  "legislativeCouncil": [],
+  "parliamentOfIndia": [
+ {
+  "sourceId_": "aaa4fc152cb8d5c4ae784c61f3ebc5f27b03467c",
+  "additionalAddress": null,
+  "additionalInformation": null,
+  "age": null,
+  "constituency": "VARANASI",
+  "contacts": [
+  "8975462014"
+ ],
+  "countriesVisited": [
+  "//WWW.NARENDRAMODI.IN",
+  "DETAILS CAN BE SEEN AT",
+  "HTTP"
+ ],
+  "dateOfBirth": "17-09-1950",
+  "dateOfMarriage": null,
+  "emailDomains_": [
+  "nic.in"
+ ],
+  "emails": [
+  "appt.pmo@nic.in"
+ ],
+  "fatherName": "DAMODARDAS MODI",
+  "gender": null,
+  "highestQualification": "B.A., M.A. (Pol. Science)Educated at Gujarat University, Ahmedabad and Delhi University, Delhi Gujarat University, Ahmedabad and Delhi University, Delhi",
+  "isPep": true,
+  "kid": "TPE001227473632N",
+  "legislaturePositions": [
+ {
+  "assembly": null,
+  "fromDate": null,
+  "toDate": null,
+  "position": "Prime Minister and also in-charge of: Ministry of Personnel, Public Grievances and Pensions; Department of Atomic Energy; Department of Space; All important policy issues; and All other portfolios not allocated to any Minister.",
+  "period": "09-Jun-2024 -",
+  "constituency": null,
+  "party": null
+ },
+ {
+  "assembly": null,
+  "fromDate": null,
+  "toDate": null,
+  "position": "Elected to 18th Lok Sabha",
+  "period": "June 2024",
+  "constituency": null,
+  "party": null
+ },
+ {
+  "assembly": null,
+  "fromDate": null,
+  "toDate": null,
+  "position": "Prime Minister of India And also in-charge of : Ministry of Personnel, Public Grievances and Pensions; Department of Atomic Energy; Department of Space; All important policy issues; and All other portfolios not allocated to any Minister",
+  "period": "30 May 2019 onwards",
+  "constituency": null,
+  "party": null
+ },
+ {
+  "assembly": null,
+  "fromDate": null,
+  "toDate": null,
+  "position": "Re-elected to 17th Lok Sabha (2nd term)",
+  "period": "May, 2019",
+  "constituency": null,
+  "party": null
+ },
+ {
+  "assembly": null,
+  "fromDate": null,
+  "toDate": null,
+  "position": "Prime Minister of India",
+  "period": "26 May 2014 - 25 May 2019",
+  "constituency": null,
+  "party": null
+ },
+ {
+  "assembly": null,
+  "fromDate": null,
+  "toDate": null,
+  "position": "Elected to 16th Lok Sabha",
+  "period": "May, 2014",
+  "constituency": null,
+  "party": null
+ },
+ {
+  "assembly": null,
+  "fromDate": null,
+  "toDate": null,
+  "position": "Member, Gujarat Legislative Assembly (Four Terms)",
+  "period": "2002 - 2014",
+  "constituency": null,
+  "party": null
+ },
+ {
+  "assembly": null,
+  "fromDate": null,
+  "toDate": null,
+  "position": "Chief Minister of Gujarat",
+  "period": "2001 - 2014",
+  "constituency": null,
+  "party": null
+ }
+ ],
+  "localAddress": "7 Lok Kalyan Marg, New Delhi NCT of Delhi110011",
+  "maritalStatus": "MARRIED",
+  "memberPhotoS3Uri": "PEP/parliament_of_india/loksabha/8d4c1da4-35a1-493f-9b58-b1d1a6699a66.pdf",
+  "memberPhotoSourceUri": "https://sansad.in/getFile/dms/fetch/8d4c1da4-35a1-493f-9b58-b1d1a6699a66?source=dsp2",
+  "memberProfileSourceUri": null,
+  "memberType": null,
+  "motherName": "HIRABEN MODI",
+  "name": "NARENDRA MODI",
+  "numberOfDaughters": "0",
+  "numberOfSons": "0",
+  "officialContacts": [
+  "(011) 23018939"
+ ],
+  "otherQualification": null,
+  "parliamentType": "LOKSABHA",
+  "parliamentaryDetails": null,
+  "party": "BHARATIYA JANATA PARTY",
+  "permanentAddress": "C-1 Someshwar Tenament, Ranip Ahmedabad Gujarat382480",
+  "placeOfBirth": "VADNAGAR, MAHESANA, (GUJARAT)",
+  "presentAddress": null,
+  "profession": "SOCIAL WORKER",
+  "socialMediaLinks": "http://www.twitter.com/narendramodi",
+  "socialWork": "Has been involved in wide scale community service efforts since his association with the Rashtriya Swayamesevak Sangh (RSS); Serving people in the poorest of the poor areas",
+  "spouseName": "JASHODABEN",
+  "state": "UTTAR PRADESH",
+  "term": "16,17,18",
+  "termExpiryDate": null,
+  "termStartDate": null,
+  "timestamp": "2026-10-06T18:32:01.616000+00:00",
+  "title": null,
+  "titleExpanded": null,
+  "nameScore": 1.0,
+  "matchingFields": {
+  "nameMatch": true,
+  "stateMatch": false
+ },
+  "confidenceLevel": "Medium"
+ },
+ {
+  "sourceId_": "03c843da00f447bef185379dc427fdf5f25aadf8",
+  "additionalAddress": null,
+  "additionalInformation": null,
+  "age": null,
+  "constituency": "VARANASI",
+  "contacts": null,
+  "countriesVisited": [
+  "//WWW.NARENDRAMODI.IN",
+  "DETAILS CAN BE SEEN AT",
+  "HTTP"
+ ],
+  "dateOfBirth": "17-09-1950",
+  "dateOfMarriage": null,
+  "emailDomains_": null,
+  "emails": null,
+  "fatherName": "DAMODARDAS MODI",
+  "gender": null,
+  "highestQualification": "B.A., M.A. (Pol. Science)Educated at Gujarat University, Ahmedabad and Delhi University, Delhi",
+  "isPep": true,
+  "kid": "TPE001150719812Y",
+  "legislaturePositions": [
+ {
+  "assembly": null,
+  "fromDate": null,
+  "toDate": null,
+  "position": "Prime Minister of India And also in-charge of : Ministry of Personnel, Public Grievances and Pensions; Department of Atomic Energy; Department of Space; All important policy issues; and All other portfolios not allocated to any Minister",
+  "period": "30 May 2019 onwards",
+  "constituency": null,
+  "party": null
+ },
+ {
+  "assembly": null,
+  "fromDate": null,
+  "toDate": null,
+  "position": "Re-elected to 17th Lok Sabha (2nd term)",
+  "period": "May, 2019",
+  "constituency": null,
+  "party": null
+ },
+ {
+  "assembly": null,
+  "fromDate": null,
+  "toDate": null,
+  "position": "Prime Minister of India",
+  "period": "26 May 2014 - 25 May 2019",
+  "constituency": null,
+  "party": null
+ },
+ {
+  "assembly": null,
+  "fromDate": null,
+  "toDate": null,
+  "position": "Elected to 16th Lok Sabha",
+  "period": "May, 2014",
+  "constituency": null,
+  "party": null
+ },
+ {
+  "assembly": null,
+  "fromDate": null,
+  "toDate": null,
+  "position": "Member, Gujarat Legislative Assembly (Four Terms)",
+  "period": "2002 - 2014",
+  "constituency": null,
+  "party": null
+ },
+ {
+  "assembly": null,
+  "fromDate": null,
+  "toDate": null,
+  "position": "Chief Minister of Gujarat",
+  "period": "2001 - 2014",
+  "constituency": null,
+  "party": null
+ }
+ ],
+  "localAddress": "7, Lok Kalyan Marg,New Delhi- 110 011",
+  "maritalStatus": "MARRIED",
+  "memberPhotoS3Uri": "PEP/parliament_of_india/loksabha/4589.jpg",
+  "memberPhotoSourceUri": "https://sansad.in/getFile/mpimage/photo/4589.jpg?source=loksabhadocs",
+  "memberProfileSourceUri": null,
+  "memberType": null,
+  "motherName": "HIRABEN MODI",
+  "name": "NARENDRA DAMODARDAS MODI",
+  "numberOfDaughters": "0",
+  "numberOfSons": "0",
+  "officialContacts": [
+  "(011) 23018939"
+ ],
+  "otherQualification": null,
+  "parliamentType": "LOKSABHA",
+  "parliamentaryDetails": null,
+  "party": "BHARATIYA JANATA PARTY",
+  "permanentAddress": "C-1, Someshwar Tenament, Ranip, Ahmedabad- 382 480,Gujarat",
+  "placeOfBirth": "VADNAGAR, MAHESANA, (GUJARAT)",
+  "presentAddress": null,
+  "profession": "Social Service",
+  "socialMediaLinks": "http://www.twitter.com/narendramodi",
+  "socialWork": "Has been involved in wide scale community service efforts since his association with the Rashtriya Swayamesevak Sangh (RSS); Serving people in the poorest of the poor areas",
+  "spouseName": "JASHODABEN",
+  "state": "UTTAR PRADESH",
+  "term": "16,17",
+  "termExpiryDate": null,
+  "termStartDate": null,
+  "timestamp": "2023-05-26T15:42:42.978000+00:00",
+  "title": null,
+  "titleExpanded": null,
+  "nameScore": 0.837962962962963,
+  "matchingFields": {
+  "nameMatch": true,
+  "stateMatch": false
+ },
+  "confidenceLevel": "Medium"
+ }
+ ],
+  "candidateAffidavit": [
+ {
+  "sourceId_": "9887badb4a85feb5a7fc241d5778ac097bf53745",
+  "affidavitStatus": "AVAILABLE",
+  "affidavitUploadedDate": "26-04-2019",
+  "affidavits3Key": "https://scraping-common-docs.s3.amazonaws.com/PEP/parliament_of_india_202312/pdf/27279014010971205671.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAY4VTBWUWWYN3ZTOP%2F20261014%2Fap-south-1%2Fs3%2Faws4_request&X-Amz-Date=20261014T073256Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEOj%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaCmFwLXNvdXRoLTEiSDBGAiEAoReHgIUCAQQoIu5l9mraOnGP62CX4lqujJo0tyurx9UCIQCBK8%2FlHnCK7ntYX25Av0ijD8eDAKHx9SrlmG%2F%2FUAsCFSrUBAiw%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F8BEAIaDDYxMTMzNDU5OTk4MSIMQ3Od9eH50B4J0iQqKqgEmupmsnrCJslqcWOK2ZWqEuSQZ%2BTy2gsjqq32k3JQpYWzfrbNZO67Px%2FCWtMlXxmP0TIrPq7SbDiCAjbfu22skjWJLEUlrfDAqlsyQBtvqvhRz30ImketT5%2BHgJ4N0wcgRTWF2DuaFak%2FFXPECOeeisUI1Mksz6dm8VvMmyOlld0lpB%2BUV7DzWivoqlhl5wApE%2F1u00Ln2CBatu116doRX2Z7yJM%2BLcw3hPRDumVteRlbcYGGYDMVkM4Xh9vRzbo6k3%2BJ9ERqYQnO5q60gUw8EqkctsmWaNNEMmKPPXLd%2F1pvMmWQX4VvtzU4eJY8iNjpIqNyp0Bjs%2FPhOtYbwnV7rFrMia1JQyRuXia7Z2fqc9xvnIeAtRLw%2FjC5HebXH4391mpk%2Bqt4zavBN360sXen07wDeZR9IIheohFpquN%2B%2BqnOmyMjRog6ifhxXjj%2BbvtAuxtdBI0Aw5Fmp4zlQiJbn06%2B5f%2BJb04OyaFqo3HU3YwO0HN3MGdsdx7Eo0roapP6BBQJgMRAKD5PYV5zJwNyi1lC%2B83DrLbB2KZTciXO%2BLpV1a0FAX0tglbD9ITPPGljWHv3r%2BOHmoArrLAUaWqfgzt6WNh0IPpIe2VqCrZ1%2Fm1LzOz6QoAi%2FA7NbvEB82l1nx9agLckqNZpSFqY8uwJSTKeS8t2f2R7U1MGLGAHgKDjS4CzLIUAaswtrJqVSqd6gN1bnedIxNU1TCVusRNnI0nks0qV7RsqMNvfvNYGOqIBk8lmohvlQLAQCbh70ieb1HPBKc7QyCgg8F7PD6m2UZRiTwmqVGMyZPQeAWN90gvQI%2B%2FnzYGCviGZmOCFZJGsjl9jcpiHTC%2BSlUEuIsF1fjt%2FdgyF0SYjO3KuavKJ%2F4gTuSl7GCmIWbblbObzq4xO7EMox%2BizKEIoWMOvyYRG9aN%2FsKQgYdlbu2MLjUFgxmNi42nG59VKpFbVA4IRIfmPY%2Brw&X-Amz-Signature=def218b274a54175c41c084491202ee1db3332b33b7b46908f322223d8ba8fe2",
+  "applicationUploadedDate": "26-04-2019",
+  "candidateAddress": null,
+  "candidateImage3Key": null,
+  "candidateImageUrl": null,
+  "constituency": "Varanasi",
+  "contesting": false,
+  "currentStatus": "ACCEPTED",
+  "dobAsPerPan_": "1950-09-17T00:00:00+00:00",
+  "electionDetail": "GENERAL",
+  "electionPeriod": "MAY-2019",
+  "electionType": "Parliamentary Constituency",
+  "emails": null,
+  "fatherOrSpouseName": null,
+  "gender": "MALE",
+  "isPep": true,
+  "kid": "KPE001121572019H",
+  "mostProbablePan": "AHHPM8993N",
+  "name": "NARENDRA MODI",
+  "nameAsPerPan_": "NARENDRA DAMODARDAS MODI",
+  "party": "BHARATIYA JANATA PARTY",
+  "state": "GUJARAT",
+  "timestamp": "2023-12-07T15:43:30.214000+00:00",
+  "nameScore": 1.0,
+  "matchingFields": {
+  "nameMatch": true,
+  "stateMatch": true
+ },
+  "confidenceLevel": "High"
+ },
+ {
+  "sourceId_": "c8da73e098886ce146272d5a0f72292b19887203",
+  "affidavitStatus": "AVAILABLE",
+  "affidavitUploadedDate": "14-05-2024",
+  "affidavits3Key": "https://scraping-common-docs.s3.amazonaws.com/PEP/parliament_of_india//pdf/574adf0804a099529eb0926e97ec33a734d373fccdc70b6572409f754bfb9d71.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAY4VTBWUWWYN3ZTOP%2F20261014%2Fap-south-1%2Fs3%2Faws4_request&X-Amz-Date=20261014T073256Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEOj%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaCmFwLXNvdXRoLTEiSDBGAiEAoReHgIUCAQQoIu5l9mraOnGP62CX4lqujJo0tyurx9UCIQCBK8%2FlHnCK7ntYX25Av0ijD8eDAKHx9SrlmG%2F%2FUAsCFSrUBAiw%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F8BEAIaDDYxMTMzNDU5OTk4MSIMQ3Od9eH50B4J0iQqKqgEmupmsnrCJslqcWOK2ZWqEuSQZ%2BTy2gsjqq32k3JQpYWzfrbNZO67Px%2FCWtMlXxmP0TIrPq7SbDiCAjbfu22skjWJLEUlrfDAqlsyQBtvqvhRz30ImketT5%2BHgJ4N0wcgRTWF2DuaFak%2FFXPECOeeisUI1Mksz6dm8VvMmyOlld0lpB%2BUV7DzWivoqlhl5wApE%2F1u00Ln2CBatu116doRX2Z7yJM%2BLcw3hPRDumVteRlbcYGGYDMVkM4Xh9vRzbo6k3%2BJ9ERqYQnO5q60gUw8EqkctsmWaNNEMmKPPXLd%2F1pvMmWQX4VvtzU4eJY8iNjpIqNyp0Bjs%2FPhOtYbwnV7rFrMia1JQyRuXia7Z2fqc9xvnIeAtRLw%2FjC5HebXH4391mpk%2Bqt4zavBN360sXen07wDeZR9IIheohFpquN%2B%2BqnOmyMjRog6ifhxXjj%2BbvtAuxtdBI0Aw5Fmp4zlQiJbn06%2B5f%2BJb04OyaFqo3HU3YwO0HN3MGdsdx7Eo0roapP6BBQJgMRAKD5PYV5zJwNyi1lC%2B83DrLbB2KZTciXO%2BLpV1a0FAX0tglbD9ITPPGljWHv3r%2BOHmoArrLAUaWqfgzt6WNh0IPpIe2VqCrZ1%2Fm1LzOz6QoAi%2FA7NbvEB82l1nx9agLckqNZpSFqY8uwJSTKeS8t2f2R7U1MGLGAHgKDjS4CzLIUAaswtrJqVSqd6gN1bnedIxNU1TCVusRNnI0nks0qV7RsqMNvfvNYGOqIBk8lmohvlQLAQCbh70ieb1HPBKc7QyCgg8F7PD6m2UZRiTwmqVGMyZPQeAWN90gvQI%2B%2FnzYGCviGZmOCFZJGsjl9jcpiHTC%2BSlUEuIsF1fjt%2FdgyF0SYjO3KuavKJ%2F4gTuSl7GCmIWbblbObzq4xO7EMox%2BizKEIoWMOvyYRG9aN%2FsKQgYdlbu2MLjUFgxmNi42nG59VKpFbVA4IRIfmPY%2Brw&X-Amz-Signature=cb12edb5d7734c654d8bcc2921335aa79199d675c35994d932bcc4d4022372b6",
+  "applicationUploadedDate": "14-05-2024",
+  "candidateAddress": null,
+  "candidateImage3Key": null,
+  "candidateImageUrl": null,
+  "constituency": "Varanasi",
+  "contesting": false,
+  "currentStatus": "ACCEPTED",
+  "dobAsPerPan_": null,
+  "electionDetail": "GENERAL",
+  "electionPeriod": "2024",
+  "electionType": "Parliamentary Constituency",
+  "emails": null,
+  "fatherOrSpouseName": null,
+  "gender": "MALE",
+  "isPep": true,
+  "kid": "TPE001150821545B",
+  "mostProbablePan": null,
+  "name": "NARENDRA MODI",
+  "nameAsPerPan_": null,
+  "party": "BHARATIYA JANATA PARTY",
+  "state": "UTTAR PRADESH",
+  "timestamp": "2026-10-01T07:37:32.891000+00:00",
+  "nameScore": 1.0,
+  "matchingFields": {
+  "nameMatch": true,
+  "stateMatch": false
+ },
+  "confidenceLevel": "Medium"
+ },
+ {
+  "sourceId_": "ce1cd893fad999b1d49ae440fa322e1c997abb30",
+  "affidavitStatus": "AVAILABLE",
+  "affidavitUploadedDate": "14-05-2024",
+  "affidavits3Key": "https://scraping-common-docs.s3.amazonaws.com/PEP/parliament_of_india_202604/pdf/44508731886897818734.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIAY4VTBWUWWYN3ZTOP%2F20261014%2Fap-south-1%2Fs3%2Faws4_request&X-Amz-Date=20261014T073256Z&X-Amz-Expires=604800&X-Amz-SignedHeaders=host&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEOj%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaCmFwLXNvdXRoLTEiSDBGAiEAoReHgIUCAQQoIu5l9mraOnGP62CX4lqujJo0tyurx9UCIQCBK8%2FlHnCK7ntYX25Av0ijD8eDAKHx9SrlmG%2F%2FUAsCFSrUBAiw%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F8BEAIaDDYxMTMzNDU5OTk4MSIMQ3Od9eH50B4J0iQqKqgEmupmsnrCJslqcWOK2ZWqEuSQZ%2BTy2gsjqq32k3JQpYWzfrbNZO67Px%2FCWtMlXxmP0TIrPq7SbDiCAjbfu22skjWJLEUlrfDAqlsyQBtvqvhRz30ImketT5%2BHgJ4N0wcgRTWF2DuaFak%2FFXPECOeeisUI1Mksz6dm8VvMmyOlld0lpB%2BUV7DzWivoqlhl5wApE%2F1u00Ln2CBatu116doRX2Z7yJM%2BLcw3hPRDumVteRlbcYGGYDMVkM4Xh9vRzbo6k3%2BJ9ERqYQnO5q60gUw8EqkctsmWaNNEMmKPPXLd%2F1pvMmWQX4VvtzU4eJY8iNjpIqNyp0Bjs%2FPhOtYbwnV7rFrMia1JQyRuXia7Z2fqc9xvnIeAtRLw%2FjC5HebXH4391mpk%2Bqt4zavBN360sXen07wDeZR9IIheohFpquN%2B%2BqnOmyMjRog6ifhxXjj%2BbvtAuxtdBI0Aw5Fmp4zlQiJbn06%2B5f%2BJb04OyaFqo3HU3YwO0HN3MGdsdx7Eo0roapP6BBQJgMRAKD5PYV5zJwNyi1lC%2B83DrLbB2KZTciXO%2BLpV1a0FAX0tglbD9ITPPGljWHv3r%2BOHmoArrLAUaWqfgzt6WNh0IPpIe2VqCrZ1%2Fm1LzOz6QoAi%2FA7NbvEB82l1nx9agLckqNZpSFqY8uwJSTKeS8t2f2R7U1MGLGAHgKDjS4CzLIUAaswtrJqVSqd6gN1bnedIxNU1TCVusRNnI0nks0qV7RsqMNvfvNYGOqIBk8lmohvlQLAQCbh70ieb1HPBKc7QyCgg8F7PD6m2UZRiTwmqVGMyZPQeAWN90gvQI%2B%2FnzYGCviGZmOCFZJGsjl9jcpiHTC%2BSlUEuIsF1fjt%2FdgyF0SYjO3KuavKJ%2F4gTuSl7GCmIWbblbObzq4xO7EMox%2BizKEIoWMOvyYRG9aN%2FsKQgYdlbu2MLjUFgxmNi42nG59VKpFbVA4IRIfmPY%2Brw&X-Amz-Signature=eaf73e3018a97c4de4cc11f8eeacdafdc49efbab0b3f5b0ad674ca93c78fc197",
+  "applicationUploadedDate": "14-05-2024",
+  "candidateAddress": "H.No. C/1, SOMESHWAR TENAMENT, RANIP, AHMEDABAD-382480",
+  "candidateImage3Key": null,
+  "candidateImageUrl": null,
+  "constituency": "Varanasi",
+  "contesting": false,
+  "currentStatus": "ACCEPTED",
+  "dobAsPerPan_": null,
+  "electionDetail": "GENERAL",
+  "electionPeriod": "2024",
+  "electionType": "Parliamentary Constituency",
+  "emails": null,
+  "fatherOrSpouseName": "DAMODARDAS MODI",
+  "gender": "MALE",
+  "isPep": true,
+  "kid": "TPE001201912618K",
+  "mostProbablePan": null,
+  "name": "NARENDRA MODI",
+  "nameAsPerPan_": null,
+  "party": "BHARATIYA JANATA PARTY",
+  "state": "UTTAR PRADESH",
+  "timestamp": "2026-04-02T10:30:15.585000+00:00",
+  "nameScore": 1.0,
+  "matchingFields": {
+  "nameMatch": true,
+  "stateMatch": false
+ },
+  "confidenceLevel": "Medium"
+ }
+ ],
+  "civilOfficer": [],
+  "governmentOfficials": []
+ },
+  "statusCode": 101
+}

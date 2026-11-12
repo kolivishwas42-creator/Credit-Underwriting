@@ -1,0 +1,889 @@
+"""
+MCP capabilities for the FOS stage.
+
+THE ONLY PATH TO THE CASE STORE. The Applicant Agent, the orchestrator and any
+future caller reach applicant, application and document records through these
+capabilities and through nothing else. No agent imports the repository, and
+none imports sqlite3.
+
+That is not ceremony. Permission checks, timeouts, audit and the
+untrusted-data boundary all live at this layer, so a caller that went around
+it would be a caller with none of them.
+
+Same envelope, same error codes and the same `_envelope` discipline as
+shared/mcp/capabilities.py: no exception crosses this boundary as a traceback.
+"""
+
+from __future__ import annotations
+
+from shared.store import request_cache
+
+import asyncio
+import logging
+import time
+import uuid
+from collections.abc import Awaitable, Callable
+from typing import Any
+
+from pydantic import ValidationError
+
+from shared.mcp.errors import (
+    InvalidInput,
+    NotFound,
+    ToolError,
+    ToolStatus,
+    Unavailable,
+)
+from shared.mcp.schemas import ToolEnvelope, ToolErrorInfo
+
+logger = logging.getLogger(__name__)
+
+
+# ==========================================================================
+# BOUNDARY
+# ==========================================================================
+
+async def _envelope(
+    capability: str,
+    run: Callable[[], Awaitable[dict[str, Any]]],
+) -> ToolEnvelope:
+    """Run a capability; convert every failure into a structured envelope."""
+    from shared.applicant import config
+
+    started = time.perf_counter()
+
+    def elapsed() -> float:
+        return round((time.perf_counter() - started) * 1000, 2)
+
+    try:
+        result = await asyncio.wait_for(run(), timeout=config.tool_timeout_seconds())
+    except asyncio.TimeoutError:
+        return ToolEnvelope(
+            ok=False, capability=capability, status=ToolStatus.UNAVAILABLE,
+            error=ToolErrorInfo(
+                code="TOOL_TIMEOUT",
+                message="The tool did not answer inside its time budget.",
+                context={"timeout_seconds": config.tool_timeout_seconds()},
+            ),
+            processing_ms=elapsed(),
+        )
+    except ToolError as exc:
+        return ToolEnvelope(
+            ok=False, capability=capability, status=exc.status,
+            error=ToolErrorInfo(code=exc.code, message=exc.message,
+                                context=dict(exc.context)),
+            processing_ms=elapsed(),
+        )
+    except ValidationError as exc:
+        return ToolEnvelope(
+            ok=False, capability=capability, status=ToolStatus.INVALID_INPUT,
+            error=ToolErrorInfo(
+                code="INVALID_INPUT",
+                message="Request failed schema validation.",
+                context={"errors": exc.errors(include_url=False)},
+            ),
+            processing_ms=elapsed(),
+        )
+    except Exception as exc:
+        # The message, never the traceback. A stack trace crossing this
+        # boundary would reach a model, and from there possibly a screen.
+        logger.exception("Applicant capability failed: %s", capability)
+        return ToolEnvelope(
+            ok=False, capability=capability, status=ToolStatus.FAILED,
+            error=ToolErrorInfo(
+                code="CAPABILITY_FAILED",
+                message=f"{capability} could not be completed.",
+                context={"error_type": type(exc).__name__},
+            ),
+            processing_ms=elapsed(),
+        )
+
+    return ToolEnvelope(ok=True, capability=capability, status=ToolStatus.OK,
+                        result=result, processing_ms=elapsed())
+
+
+def _repo():
+    """The configured repository. Never a concrete backend by name."""
+    from shared.store import RepositoryError, get_repository
+
+    try:
+        return get_repository()
+    except RepositoryError as exc:
+        raise Unavailable("CASE_STORE_UNAVAILABLE", str(exc)) from exc
+
+
+def _require(value: str | None, field: str) -> str:
+    text = (value or "").strip()
+    if not text:
+        raise InvalidInput(f"{field} is required.")
+    if len(text) > 128:
+        raise InvalidInput(f"{field} is too long.")
+    return text
+
+
+def _applicant_json(a) -> dict[str, Any]:
+    return {
+        "applicant_id": a.applicant_id,
+        "full_name": a.full_name,
+        "mobile": a.mobile,
+        "email": a.email,
+        "date_of_birth": a.date_of_birth,
+        "address": a.address,
+        # LOS Sourcing screen (migration 0011): yes / no / null = not captured. Additive.
+        "mobile_aadhaar_linked": getattr(a, "mobile_aadhaar_linked", None),
+        "missing_fields": a.missing_fields(),
+        "is_complete": a.is_complete(),
+        "created_at": a.created_at.isoformat(),
+        "updated_at": a.updated_at.isoformat(),
+    }
+
+
+def _application_json(app) -> dict[str, Any]:
+    return {
+        "case_id": app.case_id,
+        "applicant_id": app.applicant_id,
+        # The second party, when the case has one. Additive.
+        "co_applicant_id": getattr(app, "co_applicant_id", None),
+        "status": app.status.value,
+        "product": app.product,
+        "loan_amount": app.loan_amount,
+        "employment_type": app.employment_type,
+        "declared_monthly_obligations": getattr(app, "declared_monthly_obligations", None),
+        "declared_monthly_income": getattr(app, "declared_monthly_income", None),
+        "property_value": getattr(app, "property_value", None),
+        # The loan terms the FOS form captures, so the owner's own recorded
+        # tenure and rate can be read back (Copilot APPLICANT_PROFILE).
+        # Additive; null when not captured -- never defaulted.
+        "tenure_months": getattr(app, "tenure_months", None),
+        "interest_rate_pct": getattr(app, "interest_rate_pct", None),
+        # LOS Sourcing screen (migration 0011): free text, null when not captured. Additive.
+        "loan_purpose": getattr(app, "loan_purpose", None),
+        "applicant_type": getattr(app, "applicant_type", None),
+        # LOS Application Details (migration 0012): null when not captured. Additive.
+        "document_received_date": getattr(app, "document_received_date", None),
+        "co_origination": getattr(app, "co_origination", None),
+        "missing_fields": app.missing_fields(),
+        "created_at": app.created_at.isoformat(),
+        "updated_at": app.updated_at.isoformat(),
+    }
+
+
+def _pin_policy(record) -> bool:
+    """
+    Record the policy version this case is being assessed under.
+
+    ONCE. A pin that moved every time the file changed would record nothing
+    -- the point of it is that an applicant told on Monday to bring three
+    documents can be shown, later, which version of the rules said so.
+
+    Returns whether anything was pinned.
+    """
+    from shared.policy import engine as policy
+    from shared.store.models import utcnow
+
+    if record.policy_version:
+        return False
+    try:
+        resolution = policy.resolve(
+            record.product,
+            loan_amount=record.loan_amount,
+            attributes=record.policy_attributes(),
+        )
+    except Exception:  # pragma: no cover - configuration failure
+        logger.exception("Could not resolve a policy to pin to %s",
+                         record.case_id)
+        return False
+
+    record.policy_id = resolution.policy_id
+    record.policy_version = resolution.policy_version
+    record.policy_pinned_at = utcnow()
+    return True
+
+
+def _policy_json(app, resolution) -> dict[str, Any]:
+    """
+    Which policy produced this checklist, and whether it is still the one
+    the case was opened under.
+
+    THE PIN IS A RECORD, NOT A REPLAY. A case stores the policy version it
+    was first assessed under so an audit can see it. This service resolves
+    against the CURRENT file -- it does not keep old policy files and cannot
+    re-run a superseded version. When the two differ that is stated in
+    `version_changed` rather than implied by a version number that would
+    otherwise read as the one in force.
+    """
+    block = dict(resolution.provenance())
+    block["pinned_version"] = app.policy_version
+    block["pinned_at"] = (app.policy_pinned_at.isoformat()
+                          if app.policy_pinned_at else None)
+    changed = bool(app.policy_version
+                   and app.policy_version != resolution.policy_version)
+    block["version_changed"] = changed
+    if changed:
+        block["note"] = (
+            f"This case was opened under policy {app.policy_version}. The "
+            f"checklist above was resolved under {resolution.policy_version}, "
+            f"which is the version now in force."
+        )
+    return block
+
+
+def _document_json(d) -> dict[str, Any]:
+    return {
+        "document_id": d.document_id,
+        "source_id": d.source_id,
+        "document_type": d.document_type,
+        "status": d.status.value,
+        "verification_status": d.verification_status,
+        "reason_codes": list(d.reason_codes or []),
+        "has_extracted_fields": bool(d.extracted_fields),
+        # WHOSE DOCUMENT THIS IS -- the stamped owner (Document.owner_id),
+        # so a party-scoped answer never has to guess. Additive.
+        "party_id": d.owner_id,
+        "party_role": d.party_role,
+        "uploaded_at": d.uploaded_at.isoformat(),
+        "updated_at": d.updated_at.isoformat(),
+    }
+
+
+# ==========================================================================
+# READ CAPABILITIES
+# ==========================================================================
+
+async def applicant_get(applicant_id: str) -> ToolEnvelope:
+    """One applicant's captured information."""
+
+    async def run() -> dict[str, Any]:
+        aid = _require(applicant_id, "applicant_id")
+        record = _repo().get_applicant(aid)
+        if record is None:
+            raise NotFound(f"No applicant record for {aid}.", applicant_id=aid)
+        return {"applicant": _applicant_json(record)}
+
+    return await _envelope("applicant.get", run)
+
+
+async def application_get(case_id: str) -> ToolEnvelope:
+    """One application."""
+
+    async def run() -> dict[str, Any]:
+        cid = _require(case_id, "case_id")
+        record = _repo().get_application(cid)
+        if record is None:
+            raise NotFound(f"No application for case {cid}.", case_id=cid)
+        return {"application": _application_json(record)}
+
+    return await _envelope("application.get", run)
+
+
+async def applications_list(applicant_id: str) -> ToolEnvelope:
+    """Every application belonging to one applicant."""
+
+    async def run() -> dict[str, Any]:
+        aid = _require(applicant_id, "applicant_id")
+        records = _repo().list_applications(aid)
+        return {"applications": [_application_json(a) for a in records],
+                "count": len(records)}
+
+    return await _envelope("applications.list", run)
+
+
+async def documents_get(case_id: str) -> ToolEnvelope:
+    """Every document attached to one case, with its stored verdict."""
+
+    async def run() -> dict[str, Any]:
+        cid = _require(case_id, "case_id")
+        records = _repo().list_documents(cid)
+        scores = _verification_scores(cid)
+        documents = []
+        for d in records:
+            row = _document_json(d)
+            # THE PERSISTED VERIFICATION NUMBERS, from the document's latest
+            # VERIFICATION finding -- null when the verifier produced none.
+            recorded = scores.get(str(row.get("document_id")))
+            row["verification_score"] = recorded.get("score") if recorded else None
+            row["verification_confidence"] = recorded.get("confidence") if recorded else None
+            documents.append(row)
+        return {"documents": documents, "count": len(records)}
+
+    return await _envelope("documents.get", run)
+
+
+def _verification_scores(case_id: str) -> dict[str, dict[str, Any]]:
+    """
+    document_id -> the latest recorded verification score / confidence, from
+    ONE findings read for the case (never one per document). The score is
+    the verifier's own, persisted when it ran; nothing is computed here.
+    """
+    try:
+        # the CURRENT verification finding per document: a background re-read
+        # supersedes the upload's provisional verdict in the same slot
+        findings = _repo().get_current_findings(case_id, kind="VERIFICATION")
+    except Exception:  # noqa: BLE001 - no findings: no scores, never a guess
+        return {}
+    latest: dict[str, dict[str, Any]] = {}
+    for f in findings:                       # oldest-written first: the last one stands
+        if getattr(f, "document_id", None):
+            latest[str(f.document_id)] = {"score": f.score, "confidence": f.confidence}
+    return latest
+
+
+async def document_checklist(case_id: str) -> ToolEnvelope:
+    """
+    The required-document checklist, and what satisfies each slot.
+
+    Missing documents are DERIVED here -- the checklist from configuration
+    measured against what is stored -- rather than being a status anyone
+    writes down.
+    """
+
+    async def run() -> dict[str, Any]:
+        from shared.applicant import workflow
+
+        cid = _require(case_id, "case_id")
+        repo = _repo()
+        application = request_cache.read(repo, "get_application", cid)
+        if application is None:
+            raise NotFound(f"No application for case {cid}.", case_id=cid)
+        documents = request_cache.read(repo, "list_documents", cid)
+        resolution = workflow.resolution_for(application)
+        entries = workflow.build_checklist(application, documents, resolution)
+        return {
+            "checklist": entries,
+            "missing": [e["slot"] for e in entries if e["status"] == "MISSING"],
+            "satisfied": [e["slot"] for e in entries if e["status"] == "VERIFIED"],
+            "product": application.product,
+            "policy": _policy_json(application, resolution),
+        }
+
+    return await _envelope("documents.checklist", run)
+
+
+async def document_verification_get(
+    case_id: str,
+    document_type: str,
+) -> ToolEnvelope:
+    """
+    The stored verification verdict for one document type on one case.
+
+    CONSUMES the Document Verification Agent's result. It does not re-run or
+    re-derive verification; the verdict here is the one that agent reached.
+    """
+
+    async def run() -> dict[str, Any]:
+        cid = _require(case_id, "case_id")
+        wanted = _require(document_type, "document_type").upper()
+        documents = _repo().list_documents(cid)
+        matches = [d for d in documents
+                   if (d.document_type or "").upper() == wanted]
+        if not matches:
+            return {
+                "document_type": wanted,
+                "found": False,
+                "status": "MISSING",
+                "detail": f"No {wanted} document has been uploaded for this case.",
+            }
+        latest = sorted(matches, key=lambda d: d.updated_at)[-1]
+        row = _document_json(latest)
+        # THE PERSISTED VERIFICATION NUMBERS (same source as documents.get):
+        # the latest VERIFICATION finding's, null when none was produced
+        recorded = _verification_scores(cid).get(str(row.get("document_id"))) or {}
+        row["verification_score"] = recorded.get("score")
+        row["verification_confidence"] = recorded.get("confidence")
+        return {
+            "document_type": wanted,
+            "found": True,
+            **row,
+        }
+
+    return await _envelope("documents.verification", run)
+
+
+async def pending_items_get(case_id: str) -> ToolEnvelope:
+    """Everything outstanding at the FOS stage for this case."""
+
+    async def run() -> dict[str, Any]:
+        from shared.applicant import workflow
+
+        cid = _require(case_id, "case_id")
+        repo = _repo()
+        application = request_cache.read(repo, "get_application", cid)
+        if application is None:
+            raise NotFound(f"No application for case {cid}.", case_id=cid)
+        applicant = request_cache.read(repo, "get_applicant", application.applicant_id)
+        documents = request_cache.read(repo, "list_documents", cid)
+        items = workflow.pending_items(applicant, application, documents)
+        return {"pending_items": items, "count": len(items)}
+
+    return await _envelope("workflow.pending_items", run)
+
+
+async def next_action_get(case_id: str) -> ToolEnvelope:
+    """The single next thing the FOS should do on this case."""
+
+    async def run() -> dict[str, Any]:
+        from shared.applicant import workflow
+
+        cid = _require(case_id, "case_id")
+        repo = _repo()
+        application = request_cache.read(repo, "get_application", cid)
+        if application is None:
+            raise NotFound(f"No application for case {cid}.", case_id=cid)
+        applicant = request_cache.read(repo, "get_applicant", application.applicant_id)
+        documents = request_cache.read(repo, "list_documents", cid)
+        return {"next_action": workflow.next_action(applicant, application, documents)}
+
+    return await _envelope("workflow.next_action", run)
+
+
+async def readiness_get(case_id: str) -> ToolEnvelope:
+    """Whether this case may be handed to CPA. Not a credit decision."""
+
+    async def run() -> dict[str, Any]:
+        from shared.applicant import workflow
+
+        cid = _require(case_id, "case_id")
+        repo = _repo()
+        application = request_cache.read(repo, "get_application", cid)
+        if application is None:
+            raise NotFound(f"No application for case {cid}.", case_id=cid)
+        applicant = request_cache.read(repo, "get_applicant", application.applicant_id)
+        documents = request_cache.read(repo, "list_documents", cid)
+        return {"readiness": workflow.readiness(applicant, application, documents)}
+
+    return await _envelope("workflow.readiness", run)
+
+
+async def eligibility_get(case_id: str) -> ToolEnvelope:
+    """
+    The affordability verdict recorded for this case.
+
+    READS, AND ONLY READS. If no eligibility result was ever recorded
+    the envelope says so -- `recorded: false` -- rather than assessing
+    one now. A verdict produced to answer a question would be computed
+    from whatever happened to be available at the moment somebody asked,
+    which is not the same thing the pipeline concluded.
+    """
+
+    async def run() -> dict[str, Any]:
+        from shared.applicant import case_memory_facts
+
+        cid = _require(case_id, "case_id")
+        memory = case_memory_facts.case_memory(cid)
+
+        for finding in memory.get("findings") or []:
+            recorded = finding.get("eligibility")
+            if isinstance(recorded, dict) and recorded:
+                # OUT OF DATE IS SAID (2026-10-13): the loan terms the verdict was computed for vs the application
+                # now -- the same answer through MCP and through GET /api/v1/eligibility (which reads this tool)
+                import asyncio
+
+                from shared.los import eligibility_refresh
+
+                try:
+                    # the recorded decision vs the data source now (a database read: off the event loop)
+                    stale = await asyncio.to_thread(eligibility_refresh.stale_fields, recorded, cid)
+                except Exception:  # noqa: BLE001 - advice only; the record is still returned
+                    stale = []
+                return {"eligibility": recorded, "recorded": True, "stale": bool(stale), "stale_fields": stale}
+
+        return {"eligibility": None, "recorded": False, "stale": False, "stale_fields": []}
+
+    return await _envelope("eligibility.get", run)
+
+
+async def applicant_360(case_id: str) -> ToolEnvelope:
+    """
+    The whole FOS-stage picture for one case, in one call.
+
+    A convenience over the tools above, for the summary intents that would
+    otherwise make six round trips. It composes them; it computes nothing of
+    its own.
+    """
+
+    async def run() -> dict[str, Any]:
+        from shared.applicant import workflow
+
+        cid = _require(case_id, "case_id")
+        repo = _repo()
+        application = request_cache.read(repo, "get_application", cid)
+        if application is None:
+            raise NotFound(f"No application for case {cid}.", case_id=cid)
+        applicant = request_cache.read(repo, "get_applicant", application.applicant_id)
+        documents = request_cache.read(repo, "list_documents", cid)
+
+        # ONE RESOLUTION for everything below -- the checklist, the block
+        # that explains it, the pending items, the next action and the
+        # readiness verdict. Resolving per part let them disagree if a policy
+        # file were edited between the calls, and cost a stage lookup each.
+        resolution = workflow.resolution_for(application)
+        readiness_result = workflow.readiness(applicant, application, documents,
+                                              resolution=resolution)
+        return {
+            "applicant": _applicant_json(applicant) if applicant else None,
+            "application": _application_json(application),
+            "stage": workflow.derived_stage(application, documents, readiness_result),
+            "documents": [_document_json(d) for d in documents],
+            "document_summary": workflow.document_summary(documents),
+            "checklist": workflow.build_checklist(application, documents,
+                                                  resolution),
+            "policy": _policy_json(application, resolution),
+            "pending_items": workflow.pending_items(applicant, application, documents,
+                                                    resolution=resolution),
+            "next_action": workflow.next_action(applicant, application, documents,
+                                                resolution=resolution),
+            "readiness": readiness_result,
+        }
+
+    return await _envelope("applicant.360", run)
+
+
+# ==========================================================================
+# WRITE CAPABILITIES
+#
+# Separated from the reads above, because the permission layer treats them
+# differently and a reviewer should be able to see every write in one place.
+# ==========================================================================
+
+async def applicant_create(
+    full_name: str | None = None,
+    mobile: str | None = None,
+    email: str | None = None,
+    date_of_birth: str | None = None,
+    address: str | None = None,
+    applicant_id: str | None = None,
+    mobile_aadhaar_linked: bool | None = None,
+) -> ToolEnvelope:
+    """Create an applicant. The identifier is generated unless supplied."""
+
+    async def run() -> dict[str, Any]:
+        from shared.store.models import Applicant
+
+        aid = (applicant_id or "").strip() or f"APP-{uuid.uuid4().hex[:12].upper()}"
+        repo = _repo()
+        if request_cache.read(repo, "get_applicant", aid) is not None:
+            raise InvalidInput(f"Applicant {aid} already exists.", applicant_id=aid)
+
+        record = Applicant(
+            applicant_id=aid,
+            full_name=(full_name or None),
+            mobile=(mobile or None),
+            email=(email or None),
+            date_of_birth=(date_of_birth or None),
+            address=(address or None),
+            mobile_aadhaar_linked=mobile_aadhaar_linked,
+        )
+        repo.save_applicant(record)
+        return {"applicant": _applicant_json(record), "created": True}
+
+    return await _envelope("applicant.create", run)
+
+
+async def applicant_update(
+    applicant_id: str,
+    full_name: str | None = None,
+    mobile: str | None = None,
+    email: str | None = None,
+    date_of_birth: str | None = None,
+    address: str | None = None,
+) -> ToolEnvelope:
+    """Update basic applicant information. Only supplied fields change."""
+
+    async def run() -> dict[str, Any]:
+        aid = _require(applicant_id, "applicant_id")
+        repo = _repo()
+        record = request_cache.read(repo, "get_applicant", aid)
+        if record is None:
+            raise NotFound(f"No applicant record for {aid}.", applicant_id=aid)
+
+        changed: list[str] = []
+        for name, value in (("full_name", full_name), ("mobile", mobile),
+                            ("email", email), ("date_of_birth", date_of_birth),
+                            ("address", address)):
+            if value is not None and str(value).strip():
+                setattr(record, name, str(value).strip())
+                changed.append(name)
+
+        if not changed:
+            raise InvalidInput("No fields were supplied to update.")
+
+        repo.save_applicant(record)
+        return {"applicant": _applicant_json(record), "updated_fields": changed}
+
+    return await _envelope("applicant.update", run)
+
+
+def _plausible(**amounts: Any) -> None:
+    """ALL AMOUNTS ARE IN RUPEES (FOS plan 1.1): an implausible one is refused before anything is written."""
+    from shared.applicant import plausibility
+    from shared.mcp.errors import ToolError, ToolStatus
+
+    found = plausibility.problem(amounts)
+    if found is not None:
+        field, message = found
+        raise ToolError(ToolStatus.INVALID_INPUT, plausibility.CODE, message, field=field)
+
+
+async def application_create(
+    applicant_id: str,
+    product: str | None = None,
+    loan_amount: str | None = None,
+    case_id: str | None = None,
+    employment_type: str | None = None,
+    # -- affordability inputs, every one optional -----------------------
+    #
+    # KEYWORD-ONLY BY POSITION AND OPTIONAL BY DEFAULT, so every existing
+    # caller of this tool keeps working unchanged. An application created
+    # without them is one whose affordability check reports which input
+    # it did not have.
+    tenure_months: str | None = None,
+    interest_rate_pct: str | None = None,
+    declared_monthly_obligations: str | None = None,
+    property_value: str | None = None,
+    declared_monthly_income: str | None = None,
+    property_type: str | None = None,
+    purchase_price: str | None = None,
+    valuation_value: str | None = None,
+    loan_purpose: str | None = None,
+    applicant_type: str | None = None,
+    document_received_date: str | None = None,
+    co_origination: bool | None = None,
+) -> ToolEnvelope:
+    """Create an application for an existing applicant."""
+
+    async def run() -> dict[str, Any]:
+        from shared.store.models import Application
+
+        def _received_date(raw: str | None) -> str | None:
+            """The form's rule (product_flow.yaml case_form.formats.document_received_date): a real date, not future."""
+            if not (raw or "").strip():
+                return None
+            from shared.applicant.copilot.capabilities import case_form
+
+            value, why = case_form.check("document_received_date", raw, "en")
+            if why:
+                raise InvalidInput(f"document_received_date: {why}", field="document_received_date")
+            return value
+
+        aid = _require(applicant_id, "applicant_id")
+        _plausible(loan_amount=loan_amount, property_value=property_value,
+                   declared_monthly_income=declared_monthly_income)
+        repo = _repo()
+        if request_cache.read(repo, "get_applicant", aid) is None:
+            raise NotFound(
+                f"No applicant record for {aid}. Create the applicant first.",
+                applicant_id=aid,
+            )
+
+        cid = (case_id or "").strip() or f"CASE-{uuid.uuid4().hex[:12].upper()}"
+        if request_cache.read(repo, "get_application", cid) is not None:
+            raise InvalidInput(f"Application {cid} already exists.", case_id=cid)
+
+        record = Application(
+            case_id=cid, applicant_id=aid,
+            product=(product or None), loan_amount=(loan_amount or None),
+            employment_type=((employment_type or "").strip().upper() or None),
+            tenure_months=(tenure_months or None),
+            interest_rate_pct=(interest_rate_pct or None),
+            declared_monthly_obligations=(
+                declared_monthly_obligations or None),
+            property_value=(property_value or None),
+            declared_monthly_income=(declared_monthly_income or None),
+            property_type=((property_type or "").strip().upper() or None),
+            purchase_price=(purchase_price or None),
+            valuation_value=(valuation_value or None),
+            loan_purpose=(loan_purpose or None),
+            applicant_type=(applicant_type or None),
+            document_received_date=_received_date(document_received_date),
+            co_origination=co_origination,
+        )
+        _pin_policy(record)
+        repo.save_application(record)
+        return {"application": _application_json(record), "created": True}
+
+    return await _envelope("application.create", run)
+
+
+async def application_update(
+    case_id: str,
+    product: str | None = None,
+    loan_amount: str | None = None,
+    employment_type: str | None = None,
+    tenure_months: str | None = None,
+    interest_rate_pct: str | None = None,
+    declared_monthly_obligations: str | None = None,
+    property_value: str | None = None,
+    declared_monthly_income: str | None = None,
+    property_type: str | None = None,
+    purchase_price: str | None = None,
+    valuation_value: str | None = None,
+) -> ToolEnvelope:
+    """Update basic application information."""
+
+    async def run() -> dict[str, Any]:
+        cid = _require(case_id, "case_id")
+        _plausible(loan_amount=loan_amount, property_value=property_value,
+                   declared_monthly_income=declared_monthly_income)
+        repo = _repo()
+        record = request_cache.read(repo, "get_application", cid)
+        if record is None:
+            raise NotFound(f"No application for case {cid}.", case_id=cid)
+
+        changed: list[str] = []
+        if product is not None and str(product).strip():
+            record.product = str(product).strip().upper()
+            changed.append("product")
+        if loan_amount is not None and str(loan_amount).strip():
+            record.loan_amount = str(loan_amount).strip()
+            changed.append("loan_amount")
+        if employment_type is not None and str(employment_type).strip():
+            record.employment_type = str(employment_type).strip().upper()
+            changed.append("employment_type")
+
+        # AFFORDABILITY INPUTS. Set only when supplied and non-empty, the
+        # same rule the fields above follow: an update that does not
+        # mention a tenure must not erase the one already captured.
+        for name, supplied in (
+            ("tenure_months", tenure_months),
+            ("interest_rate_pct", interest_rate_pct),
+            ("declared_monthly_obligations", declared_monthly_obligations),
+            ("property_value", property_value),
+            ("property_type", (property_type or "").strip().upper() or None),
+            ("purchase_price", purchase_price),
+            ("valuation_value", valuation_value),
+            ("declared_monthly_income", declared_monthly_income),
+        ):
+            if supplied is not None and str(supplied).strip():
+                setattr(record, name, str(supplied).strip())
+                changed.append(name)
+
+        # A case opened before its product was chosen has nothing to pin to.
+        # Pin now, on the first update that gives it a product.
+        if _pin_policy(record):
+            changed.append("policy_version")
+
+        if not changed:
+            raise InvalidInput("No fields were supplied to update.")
+
+        repo.save_application(record)
+        out: dict[str, Any] = {"application": _application_json(record), "updated_fields": changed}
+        # THE LOAN TERMS CHANGED: the recorded eligibility verdict is re-assessed for them (2026-10-13; the same
+        # agent and the recorded evidence -- shared/los/eligibility_refresh.py)
+        from shared.los import eligibility_refresh
+
+        if eligibility_refresh.affects(changed):
+            refreshed = await eligibility_refresh.refresh(cid, actor="mcp:application.update",
+                                                          request_id=f"mcp_{uuid.uuid4().hex}",
+                                                          reason="application.update: " + ", ".join(changed))
+            if refreshed is not None:
+                out["eligibility"] = refreshed
+        return out
+
+    return await _envelope("application.update", run)
+
+
+async def document_mark_for_reupload(
+    case_id: str,
+    document_type: str,
+) -> ToolEnvelope:
+    """
+    Mark a document as needing re-upload.
+
+    Sets the stored status to REJECTED with an explicit reason code, so the
+    checklist and the next action both reflect the FOS's decision. It does not
+    touch the verification verdict the pipeline reached -- that stays as the
+    record of what verification concluded.
+    """
+
+    async def run() -> dict[str, Any]:
+        from shared.store.models import DocumentStatus
+
+        cid = _require(case_id, "case_id")
+        wanted = _require(document_type, "document_type").upper()
+        repo = _repo()
+        matches = [d for d in request_cache.read(repo, "list_documents", cid)
+                   if (d.document_type or "").upper() == wanted]
+        if not matches:
+            raise NotFound(
+                f"No {wanted} document on case {cid}.",
+                case_id=cid, document_type=wanted,
+            )
+
+        latest = sorted(matches, key=lambda d: d.updated_at)[-1]
+        latest.status = DocumentStatus.REJECTED
+        codes = list(latest.reason_codes or [])
+        if "FOS_REQUESTED_REUPLOAD" not in codes:
+            codes.append("FOS_REQUESTED_REUPLOAD")
+        latest.reason_codes = codes
+        repo.save_document(latest)
+        return {"document": _document_json(latest), "marked": True}
+
+    return await _envelope("documents.mark_for_reupload", run)
+
+
+async def co_applicant_get(case_id: str, co_applicant_id: str) -> ToolEnvelope:
+    """
+    ONE CO-APPLICANT OF ONE CASE (LOS_COAPP_IDENTITY, step 5d): name, relationship, their
+    own documents, their KYC status and what is pending for them. SCOPED BY THE CASE, like
+    every read tool (no global retrieval): the caller's access to `case_id` is checked by
+    whoever calls (MCP server: _authorise), and the co-applicant must be ON that case.
+    """
+
+    async def run() -> dict[str, Any]:
+        from shared.applicant.copilot.answering import document_actions
+        from shared.los import co_applicants
+
+        cid = _require(case_id, "case_id")
+        co_id = _require(co_applicant_id, "co_applicant_id").upper()
+        if not co_applicants.enabled():
+            raise ToolError(ToolStatus.UNAVAILABLE, "CO_APPLICANT_IDENTITY_DISABLED",
+                            "Co-applicant ids need LOS_COAPP_IDENTITY.")
+        if cid not in co_applicants.cases_for(co_id):
+            # the same answer whether the id is unknown or on another case
+            raise ToolError(ToolStatus.NOT_FOUND, "CO_APPLICANT_NOT_FOUND",
+                            "This case has no co-applicant with that id.")
+        record = co_applicants.get(co_id) or {}
+        documents = [_document_json(d) for d in _repo().list_documents(cid)
+                     if d.party_id == co_id and str(getattr(d, "party_role", "")).upper() == "CO_APPLICANT"]
+        view = document_actions.build(cid, party="CO_APPLICANT", repository=_repo())
+        kyc = None
+        for finding in _repo().get_current_findings(cid, kind="KYC") or []:
+            if getattr(finding, "party_id", None) == co_id:
+                kyc = getattr(finding, "status", None)
+        return {"co_applicant_id": co_id, "case_id": cid, "name": record.get("name"),
+                "name_source": record.get("name_source"), "relationship": record.get("relationship"),
+                "documents": documents, "kyc_status": kyc,
+                "pending": view["pending"], "reupload": view["reupload"], "under_review": view["under_review"]}
+
+    return await _envelope("co_applicant.get", run)
+
+
+#: capability name -> coroutine. The registry the planner selects from; a tool
+#: not in here cannot be called, whatever a model asks for.
+READ_TOOLS = {
+    "co_applicant.get": co_applicant_get,
+    "applicant.get": applicant_get,
+    "application.get": application_get,
+    "applications.list": applications_list,
+    "documents.get": documents_get,
+    "documents.checklist": document_checklist,
+    "documents.verification": document_verification_get,
+    "workflow.pending_items": pending_items_get,
+    "workflow.next_action": next_action_get,
+    "workflow.readiness": readiness_get,
+    "eligibility.get": eligibility_get,
+    "applicant.360": applicant_360,
+}
+
+WRITE_TOOLS = {
+    "applicant.create": applicant_create,
+    "applicant.update": applicant_update,
+    "application.create": application_create,
+    "application.update": application_update,
+    "documents.mark_for_reupload": document_mark_for_reupload,
+}
+
+ALL_TOOLS = {**READ_TOOLS, **WRITE_TOOLS}
+
+
+__all__ = ["ALL_TOOLS", "READ_TOOLS", "WRITE_TOOLS"] + sorted(ALL_TOOLS)

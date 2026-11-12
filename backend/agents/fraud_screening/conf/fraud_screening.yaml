@@ -1,0 +1,91 @@
+# Fraud screening (AML / PEP / rules) -- thresholds and reference lists. Data only; the code holds logic.
+# Which rules run, their severity and their per-rule parameters live in the database table rule_config
+# (seeded by db/schema.py, edited through PATCH .../rules/{rule_key}). The values below are the engine's fixed policy.
+version: 1
+
+# where the LOS loan application tables are read from (same database, this schema; env FRAUD_SCREENING_LOAN_SCHEMA)
+loan_schema: public
+
+name_matching:
+  match_threshold: 0.80        # similarity >= this is "the same name" (rules 2 and 5, AML/PEP name comparison)
+  partial_threshold: 0.60      # AML/PEP: similarity >= this is a partial name match
+
+address_matching:
+  reuse_threshold: 0.92        # rule 15: address similarity counted as "the same address" (rule 16: its config_json)
+  min_compare_chars: 20        # rule 15: a shorter normalised address is not compared
+  rule16_min_chars: 10         # rule 16: a shorter normalised address of the applicant / co-applicant is not compared
+  # rule 15: the same address is fine when the other occupant is family -- they share a surname (own, father's,
+  # spouse's or mother's) with the applicant; a surname shorter than this is not counted
+  family_surname_min_chars: 2
+  family_surname_fields: [last_name, father_last_name, spouse_last_name, mother_last_name]
+
+age:
+  dob_tolerance_years: 1       # rule 9: stated age may differ from the DOB age by this much (config_json
+                               # age_dob_tolerance_years overrides)
+  minor_below_years: 18        # rule 13: an age below this is a synthetic-identity signal
+
+identity:
+  mobile_digits: 10            # rule 12: mobile numbers are compared on their last this-many digits
+
+# per-rule parameters when the rule's config_json (table rule_config) does not give them
+rule_defaults:
+  Rule4_Name_Age_Tweak:
+    age_diff_years: 5
+    name_similarity: 0.85
+    history_age_diff_years: 1          # vs an earlier application with a different DOB: ages at least this far apart
+  Rule5_Dual_Identity_Mismatch:
+    include_same_customer: true        # an earlier application of the same customer also counts as "has a record"
+  Rule16_Relationship_Fraud:
+    address_match_threshold: 0.95      # applicant / co-applicant address similarity counted as "the same address"
+    ignore_family_relation: false      # false: flagged whatever the stated relation; true: immediate family let through
+
+evidence:
+  max_lines: 5                 # evidence lines kept per rule message (rules 5, 6, 9 DOB conflict, 15)
+  rule15_address_chars: 120    # address text shown per rule 15 hit
+  rule16_address_chars: 80     # address text shown in the rule 16 message
+
+risk:
+  # severity of a triggered rule -> rank; the highest rank gives the risk level
+  severity_rank: { Low: 0, Medium: 1, High: 2, Critical: 3 }
+  levels: [LOW, MEDIUM, HIGH, CRITICAL]
+  # MEDIUM with at least this many triggered rules becomes HIGH
+  escalate_medium_to_high_at: 3
+
+# rule 16: a co-applicant relation containing one of these words is immediate family
+family_relations: [spouse, wife, husband, son, daughter, father, mother, parent, child, brother, sister, sibling]
+
+aml:
+  match_threshold_percent: 70  # env FRAUD_SCREENING_AML_MATCH_THRESHOLD_PERCENT
+  timeout_seconds: 15          # env FRAUD_SCREENING_AML_API_TIMEOUT_SECONDS
+  no_record_status_codes: [103, 102]
+  sample_file: AML.json        # conf/ file used while FRAUD_SCREENING_AML_API_URL is not set (source "mock")
+  vendor:
+    name_match_threshold: 0.65
+    old_records: false
+    rbi_notified: false
+    pdf_report: false
+    send_dob_and_age: false
+
+pep:
+  match_threshold_percent: 70  # env FRAUD_SCREENING_PEP_MATCH_THRESHOLD_PERCENT
+  timeout_seconds: 15          # env FRAUD_SCREENING_PEP_API_TIMEOUT_SECONDS
+  no_record_status_codes: [103]
+  sample_file: PEP.json        # conf/ file used while FRAUD_SCREENING_PEP_API_URL is not set (source "mock")
+  vendor:
+    name_match_threshold: 0.85
+    additional_information: true
+    combined_search: true
+    confidence_level: high
+    send_dob: false
+  category_labels:
+    legislativeAssembly: Legislative Assembly
+    legislativeCouncil: Legislative Council
+    parliamentOfIndia: Parliament of India
+    candidateAffidavit: Candidate affidavit
+    civilOfficer: Civil officer
+    governmentOfficials: Government official
+
+# AML/PEP location comparison: words that are not place names
+place_stopwords: [house, flat, floor, building, bldg, near, opp, opposite, street, road, lane, cross, crossroad, nagar,
+                  colony, society, area, sector, block, plot, the, and, city, state, district, dist, taluka, post,
+                  village, india, bungalow, palatial, hilly, housing, authority, mosque, white, defence, number, nu]

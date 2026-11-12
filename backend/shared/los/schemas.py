@@ -1,0 +1,1143 @@
+"""
+The published shape of POST /api/v1/los/process.
+
+DOCUMENTATION ONLY. These models are attached to the route through
+`responses=`, not `response_model=`, so FastAPI renders them in Swagger and
+does NOT use them to serialise, filter or re-validate anything. That is
+deliberate: the response is assembled by shared/los/response.py, which
+decides what leaves the building, and a second model quietly dropping a key
+it had not been taught about is exactly the failure this cannot afford.
+
+WHAT IS NOT HERE IS THE POINT. Stage timings, capability names, routing
+categories and the KYC pair-comparison matrix are all real, all useful, and
+all internal: they describe how this service is built rather than what it
+concluded, and a client that started reading them would turn an
+implementation detail into a contract. They remain on the internal envelope
+and in the logs.
+
+Keep these in step with shared/los/response.py. The E2E suite asserts the
+documented field set against a real response, so drift fails a test rather
+than quietly misleading a reader.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class EvidenceRef(BaseModel):
+    """
+    Where a finding came from, as a reference the caller can resolve.
+
+    Anchored on the caller's own source_id -- never an internal or temporary
+    file path, and never the capability's wording for how it looked.
+    """
+
+    source_id: str = Field(..., examples=["sig.png"])
+    locator: str = Field(
+        ...,
+        description="source_id, optionally with #page=N or #region=x0,y0,x1,y1.",
+        examples=["sig.png#region=0,136,640,166", "deed.pdf#page=1"],
+    )
+
+
+class SignatureFinding(BaseModel):
+    """The four questions a caller actually asks about a signature."""
+
+    present: bool
+    presence: str = Field(..., examples=["PRESENT", "ABSENT"])
+    quality: str = Field(..., examples=["SUFFICIENT", "POOR"])
+    comparison: str = Field(..., examples=["MATCH", "NOT_COMPARABLE"])
+    match_score: float | None = None
+    synthetic_risk: str = Field(..., examples=["LOW"])
+    manipulation_risk: str = Field(..., examples=["LOW"])
+
+
+class SpecialistVerdict(BaseModel):
+    """
+    A specialist capability's verdict on one document.
+
+    The business answer only: what was decided, why, and what it refused to
+    claim. Which service ran, how it was called and what it routed on are
+    this service's business.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    decision: str = Field(..., examples=["PASS", "REVIEW", "FAIL", "SKIPPED"])
+    reason_codes: list[str] = Field(default_factory=list)
+
+    subtype: str | None = Field(
+        None,
+        description=(
+            "The kind of instrument, where that changes what the document "
+            "is worth. A gift deed is not a sale deed."
+        ),
+        examples=["SALE_DEED", "GIFT_DEED"],
+    )
+    signature: SignatureFinding | None = None
+
+    ownership_verified: bool | None = Field(
+        None, description="Never true: no capability here establishes ownership."
+    )
+    authenticity_verified: bool | None = Field(
+        None, description="Never true: authenticity is not established here."
+    )
+    business_existence_verified: bool | None = None
+
+
+#: What the identity verification gate is and is not claiming.
+AUTHENTICITY_DESCRIPTION = (
+    "Present on identity documents. Always NOT_ESTABLISHED: this service has "
+    "no issuer API, government lookup or issuer signature to check against, "
+    "so a PASS means the document is structurally valid and internally "
+    "consistent -- never that it was issued by the authority it names."
+)
+
+
+class DocumentError(BaseModel):
+    code: str = Field(..., examples=["INVALID_DOCUMENT"])
+    message: str
+    source_id: str | None = None
+
+
+class ProcessedDocument(BaseModel):
+    """One uploaded document, as the client sees it."""
+
+    source_id: str = Field(..., description="The filename as uploaded.")
+    party_id: str | None = Field(
+        None,
+        description=(
+            "Which person on the case this document belongs to. Present "
+            "whenever parties were supplied. Two people on one case may "
+            "upload files with the same name — this is what tells them "
+            "apart, and a frontend should group documents by it rather "
+            "than by filename or upload order."
+        ),
+        examples=["APP-3D51FFAC6342"],
+    )
+    party_role: str | None = Field(
+        None,
+        description="`PRIMARY_APPLICANT` or `CO_APPLICANT`.",
+        examples=["PRIMARY_APPLICANT"],
+    )
+    type: str = Field(
+        ...,
+        description="The type this service identified. UNKNOWN when it could not.",
+        examples=["PAN", "DRIVING_LICENCE", "ITR", "BANK_STATEMENT"],
+    )
+    status: str = Field(
+        ...,
+        description="This document's roll-up.",
+        examples=["SUCCESS", "REVIEW", "SKIPPED", "FAILED"],
+    )
+    verification: str = Field(
+        ...,
+        description=(
+            "The verification verdict. SKIPPED is NOT a pass -- a check that "
+            "did not run has established nothing, and extraction is withheld."
+        ),
+        examples=["PASS", "REVIEW", "FAIL", "SKIPPED"],
+    )
+
+    extraction: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "The extracted fields, released ONLY behind a verification PASS "
+            "and only while extraction is enabled. Absent otherwise. The keys "
+            "depend on the document type.\n\n"
+            "Values are JSON-native: money is a **number**, never a "
+            "stringified `Decimal`. An `address` is an **object** of "
+            "components rather than the printed line, and is omitted "
+            "when no component could be identified -- a field whose "
+            "value would be the recogniser's read of a region is not a "
+            "field worth publishing."
+        ),
+        examples=[{
+            "pan_number": "ABCPV1234K",
+            "name": "SUNIL KUMAR VERMA",
+            "date_of_birth": "1988-04-12",
+        }],
+    )
+    reason_codes: list[str] | None = Field(
+        None, description="Why this verdict. Absent when there is nothing to say."
+    )
+    verification_score: int | None = Field(
+        None, ge=0, le=100,
+        description=(
+            "How much of what should have been established about this "
+            "document was. NOT a risk or credit score: it describes the "
+            "document and the checking of it, and no figure on a bank "
+            "statement moves it."
+        ),
+        examples=[91],
+    )
+    verification_confidence: int | None = Field(
+        None, ge=0, le=100,
+        description=(
+            "How far `verification_score` can be relied on -- the share of "
+            "checks that reached a conclusion either way. "
+            "A document that plainly fails every check scores 0 with HIGH "
+            "confidence. One whose checks could not run scores 0 with LOW "
+            "confidence. Those are very different situations and one number "
+            "cannot say both."
+        ),
+        examples=[94],
+    )
+    reasons: list[str] | None = Field(
+        None,
+        description=(
+            "Plain-language explanation for a REVIEW or FAIL, one per reason "
+            "code. Absent on a pass."
+        ),
+        examples=[["This bank statement needs review because its transaction "
+                   "integrity could not be established confidently."]],
+    )
+    has_extracted_fields: bool | None = Field(
+        None,
+        description="Whether the verification gate released any fields.",
+    )
+    authenticity: str | None = Field(
+        None,
+        description=AUTHENTICITY_DESCRIPTION,
+        examples=["NOT_ESTABLISHED"],
+    )
+    verification_scope: str | None = Field(
+        None,
+        description=(
+            "What the verdict rests on -- document integrity checks such as "
+            "format, field consistency or balance reconciliation. Never "
+            "issuance: see `issuer_verified`."
+        ),
+        examples=["DOCUMENT_STRUCTURE_AND_FIELD_CONSISTENCY",
+                  "DOCUMENT_STRUCTURE_AND_BALANCE_RECONCILIATION"],
+    )
+    issuer_verified: bool | None = Field(
+        None,
+        description=(
+            "Whether the issuing authority (government, bank, employer), "
+            "through a trusted provider, confirmed the document. True ONLY "
+            "on a real provider confirmation -- never for OCR confidence, a "
+            "valid format, an MRZ checksum or a clean-looking file."
+        ),
+        examples=[False],
+    )
+    issuer_verification: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "The issuer's answer: status (ISSUER_CONFIRMED, ISSUER_MISMATCH "
+            "or NOT_ESTABLISHED), provider, reference_id, consent_id, "
+            "verified_at, verified_fields, mismatched_fields, reason_codes. "
+            "Field NAMES only, never values."
+        ),
+    )
+    fraud_signals: list[dict[str, Any]] | None = Field(
+        None,
+        description=(
+            "Image/PDF forensic signals (code, severity, detail). Signals "
+            "only: they can flag or hold a document, never establish that "
+            "it is genuine."
+        ),
+    )
+    advisories: list[str] | None = Field(
+        None,
+        description=(
+            "Findings a reviewer should see that are NOT grounds to refuse "
+            "the document, and did not change the verdict. Deliberately "
+            "separate from `reason_codes`, where a code reads as a problem "
+            "with the document."
+        ),
+        examples=[["PAN_NAME_INITIAL_MISMATCH"]],
+    )
+    specialist: SpecialistVerdict | None = Field(
+        None, description="Present only for a specialist-handled document."
+    )
+    expected_type: str | None = Field(
+        None,
+        description=(
+            "The type the caller asserted for this file through "
+            "expected_types, echoed back. Present whenever they asserted "
+            "one; absent for AUTO. Read it beside `type`: where the two "
+            "differ the document carries DOCUMENT_TYPE_MISMATCH, failed "
+            "verification and released no fields."
+        ),
+        examples=["PAN"],
+    )
+    hint: str | None = Field(
+        None,
+        description=(
+            "The type the CALLER asserted, echoed when classification was "
+            "switched off. Never a type this service found."
+        ),
+    )
+    evidence_refs: list[EvidenceRef] | None = None
+    errors: list[DocumentError] | None = None
+
+
+class KycFieldSource(BaseModel):
+    """One document's contribution to a KYC field comparison."""
+
+    source_id: str = Field(..., description="The filename as uploaded.")
+    document_type: str = Field(..., examples=["PAN", "DRIVING_LICENCE"])
+    value: str | dict[str, str] | float | int | None = Field(
+        None,
+        description=(
+            "What this document carried, as extraction released it. Already "
+            "published under documents[].extraction -- never OCR text, "
+            "tokens or boxes.\n\n"
+            "An ADDRESS arrives as components (`pincode`, `state`, "
+            "`city`, and the free-text parts where they are short "
+            "enough to be real ones), because the printed line on a "
+            "card is read as one region and its unplaced remainder is "
+            "recogniser output, not a value. Omitted entirely when "
+            "nothing usable could be identified."
+        ),
+    )
+    normalized_value: str | dict[str, str] | float | int | None = Field(
+        None,
+        description=(
+            "What was actually compared. Published beside `value` so a "
+            "near-miss can be read correctly: the difference is either in "
+            "the documents or in the normalisation, and only showing both "
+            "says which.\n\n"
+            "**Absent when normalisation changed nothing** — on most rows "
+            "it did, and repeating the value said the same thing twice. "
+            "Also absent on an ADDRESS, where the canonical components "
+            "in `value` are themselves the normalised form."
+        ),
+    )
+
+
+class KycFieldResult(BaseModel):
+    """
+    One comparable identity field, resolved across the uploaded documents.
+
+    The operational view. The pairwise comparison matrix behind it stays
+    internal: it grows with the square of the document count and nobody acts
+    on it.
+    """
+
+    field: str = Field(
+        ...,
+        examples=["NAME", "DATE_OF_BIRTH", "PAN_NUMBER", "FATHER_NAME",
+                  "ADDRESS"],
+    )
+    party_id: str | None = Field(
+        None,
+        description=(
+            "Whose row this is. Present **only** on the case-level `kyc` "
+            "of a two-party case, where both parties contribute a NAME "
+            "row and a reviewer must be able to tell them apart. Absent "
+            "on a single-applicant response and inside a party's own "
+            "`kyc`, where it would say nothing."
+        ),
+        examples=["APP-1", "COAPP-7F2A11C4D9E0"],
+    )
+    status: str = Field(
+        ...,
+        description=(
+            "PASS the values agree. PARTIAL they overlap materially but are "
+            "not identical. REVIEW the comparison was inconclusive. FAIL they "
+            "plainly differ. SKIPPED nothing was compared -- which is NOT a "
+            "failure and never becomes one."
+        ),
+        examples=["PASS", "PARTIAL", "REVIEW", "FAIL", "SKIPPED"],
+    )
+    match_score: int = Field(
+        0, ge=0, le=100,
+        description=(
+            "How closely the available values match EACH OTHER. 0 on a "
+            "SKIPPED field means nothing was compared, not that nothing "
+            "matched."
+        ),
+    )
+    confidence: int = Field(
+        0, ge=0, le=100,
+        description=(
+            "How far this result can be relied on -- a DIFFERENT question "
+            "from match_score, and never a copy of it. Built from the "
+            "comparison method used, how many documents were compared, how "
+            "complete the field was across them, the extraction quality "
+            "reported upstream, and how near the score sits to a decision "
+            "threshold. "
+            "Two poorly-read fields that agree exactly score 100 for match "
+            "and well under it for confidence. Two cleanly-read fields that "
+            "plainly differ score 0 for match and HIGH for confidence -- the "
+            "disagreement is real and a reviewer should act on it."
+        ),
+    )
+    reason_code: str = Field(
+        "", examples=["EXACT_MATCH", "PARTIAL_ADDRESS_MATCH", "NAME_MISMATCH"]
+    )
+    reason: str | None = Field(
+        None,
+        description=(
+            "Deterministic. Never model-generated.\n\n"
+            "**Absent whenever `reason_code` is present**, which is "
+            "almost always: `NAME_MISMATCH` beside \"Name differs "
+            "across PAN and Driving Licence.\" is the same fact twice, "
+            "and the sentence was the largest thing in a party's KYC "
+            "after the sources. Present only on the rare row that "
+            "reached a verdict without a code, where the sentence is "
+            "the only explanation there is."
+        ),
+        examples=["Name matches across PAN and Driving Licence."],
+    )
+    sources: list[KycFieldSource] = Field(default_factory=list)
+
+
+class KycScore(BaseModel):
+    """
+    What `overall_score` actually measured.
+
+    THE NUMBER ALONE IS AMBIGUOUS. `overall_score` is a weighted mean over
+    the fields that could be compared, so on a bundle where only the name
+    was comparable it IS the name-match score -- and a reviewer reading
+    "38" with no label reasonably takes it for an accuracy figure. This
+    names the basis instead of leaving it to be inferred.
+
+    Nothing here is a new calculation: `value` and `confidence` are the
+    existing `overall_score` and `overall_confidence`.
+    """
+
+    value: int = Field(..., ge=0, le=100, description="Exactly `overall_score`.")
+    type: str = Field(
+        ...,
+        description=(
+            "What the score measured. A single-field score names that "
+            "field; a score over several fields is `KYC_CONSISTENCY`. "
+            "Never an accuracy figure -- nothing in this pipeline "
+            "measures how often the extractor is right."
+        ),
+        examples=["NAME_MATCH", "ADDRESS_MATCH", "KYC_CONSISTENCY"],
+    )
+    label: str = Field(..., examples=["Name Match Score"])
+    interpretation: str = Field(
+        ...,
+        description=(
+            "The score in words. EXPLANATORY ONLY -- it draws no "
+            "PASS/FAIL boundary. Those thresholds live in "
+            "kyc_policies.yaml, so a band and a verdict may legitimately "
+            "differ: a non-blocking check can FAIL and still leave the "
+            "case at REVIEW."
+        ),
+        examples=["Exact match", "Low similarity"],
+    )
+    confidence: int = Field(..., ge=0, le=100,
+                            description="Exactly `overall_confidence`.")
+
+
+class KycVerificationSummary(BaseModel):
+    """How many checks ran, and how they came out."""
+
+    checks_evaluated: int = Field(..., description="Checks that were not skipped.")
+    checks_passed: int = 0
+    checks_failed: int = 0
+    checks_review: int | None = Field(
+        None,
+        description=(
+            "Checks that reached REVIEW. Present only when there are any, "
+            "so that passed + failed + review + skipped always equals the "
+            "total -- a summary whose numbers do not add up invites the "
+            "reader to assume the rest failed."
+        ),
+    )
+    checks_skipped: int = 0
+
+    primary_applicant: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "This party's own counts. Present only on a case with a "
+            "co-applicant -- \"four of five checks passed\" across two "
+            "people describes neither of them. The case-wide counts "
+            "above are unchanged and stay beside these."
+        ),
+    )
+    co_applicant: dict[str, Any] | None = Field(
+        None, description="The co-applicant's own counts."
+    )
+
+    primary_issue: str | None = Field(
+        None,
+        description="The reason code a reviewer should read first.",
+        examples=["NAME_MISMATCH"],
+    )
+
+
+class KycOutcome(BaseModel):
+    """
+    The verdict as a sentence, selected deterministically by reason code.
+
+    NAMED `KycOutcome`, NOT `KycResult`. The KYC agent already publishes a
+    `KycResult` of its own, and two models with one name make FastAPI
+    disambiguate BOTH into `app__agents__kyc__schemas__KycResult` --
+    renaming an existing public schema as a side effect of adding a new
+    one.
+    """
+
+    title: str = Field(..., examples=["Identity verification requires review"])
+    message: str | None = Field(
+        None,
+        description=(
+            "Present only where the reason code carries enough to say "
+            "something true. A code with no entry produces no sentence "
+            "rather than a plausible one."
+        ),
+    )
+    action: str = Field(
+        ...,
+        description="What a human does next. Never an approval.",
+        examples=["Manual review required", "No action required"],
+    )
+
+
+class KycSummary(BaseModel):
+    """
+    The KYC verdict.
+
+    Establishes that the documents describe the same person consistently. It
+    does NOT establish that any of them is genuine, and it is NOT a credit,
+    risk or fraud score.
+    """
+
+    status: str = Field(..., examples=["PASS", "REVIEW", "FAIL", "SKIPPED"])
+    reason_codes: list[str] = Field(default_factory=list)
+
+    overall_score: int = Field(
+        0, ge=0, le=100,
+        description=(
+            "Weighted mean of the field match scores, over the fields that "
+            "were actually compared. Weights are in kyc_policies.yaml. A "
+            "skipped field is excluded and the rest renormalised, so an "
+            "absent field neither helps nor hurts. NOT a risk score."
+        ),
+    )
+    overall_confidence: int = Field(
+        0, ge=0, le=100,
+        description="Weighted mean of the field confidences, same basis.",
+    )
+    overall_score_basis: str | None = Field(
+        None,
+        description=(
+            "What `overall_score` measured, for a client reading only "
+            "that number.\n\n"
+            "**Party-qualified on a joint case.** At case level "
+            "`overall_score` is the MINIMUM of the parties' scores, not "
+            "a mean across them, and a minimum belongs to one person -- "
+            "so `CO_APPLICANT_NAME_MATCH` rather than a bare "
+            "`NAME_MATCH`, which would read as a figure describing the "
+            "whole case."
+        ),
+        examples=["NAME_MATCH", "CO_APPLICANT_NAME_MATCH",
+                  "KYC_CONSISTENCY"],
+    )
+    score: KycScore | None = Field(
+        None,
+        description=(
+            "`overall_score`, with what it measured. Absent when no field "
+            "was comparable -- `roll_up` returns 0 there, and that 0 does "
+            "not mean the documents disagreed."
+        ),
+    )
+    verification_summary: KycVerificationSummary | None = Field(
+        None, description="Counts over the checks, from the checks."
+    )
+
+    # THE EXPLICIT STATE AND ITS EXPLANATION (2026-10-05/06), derived from
+    # `status` by the KYC agent -- documented here so the contract is exact.
+    state: str | None = Field(
+        None, examples=["PASS", "PARTIAL", "REVIEW", "FAIL", "PENDING", "CONFIGURATION_GAP"],
+        description=(
+            "What `status` MEANS for the case. PASS: the documents describe the same person. "
+            "PARTIAL: what was compared agrees, but a blocking check could not run. REVIEW: details "
+            "differ and a person should confirm. FAIL: the documents describe different people. "
+            "PENDING: only one source so far -- waiting for another document, not a problem. "
+            "CONFIGURATION_GAP: KYC is switched off or not configured. `status` stays the gate."),
+    )
+    reason: str | None = Field(None, description="Why, in words. Field names only, never values.")
+    affected_documents: list[str] = Field(default_factory=list, description="Document types the outcome rests on.")
+    mismatched_fields: list[str] = Field(default_factory=list, description="Fields that did not match.")
+    next_action: str | None = Field(None, description="The next step, in words.")
+    passed_checks: list[str] = Field(default_factory=list, description="Checks that passed (NAME, DOB, ...).")
+    failed_checks: list[str] = Field(default_factory=list, description="Checks in REVIEW or FAIL.")
+    missing_information: list[str] = Field(
+        default_factory=list, description="Checks that could not run: a document did not carry the value.")
+    next_actions: list[dict[str, str]] = Field(
+        default_factory=list, description="Coded next steps: {code, label}. Empty on PASS.")
+    result: KycOutcome | None = Field(None, description="The verdict in words.")
+    issues: list[PartyIssue] | None = Field(
+        None,
+        description=(
+            "The reason codes as a reader acts on them, one object per "
+            "code. ADDED BESIDE `reason_codes`, never instead of it: "
+            "the codes are published, documented and read by existing "
+            "consumers, and dropping them to tidy the shape would break "
+            "them. Present inside a party's section."
+        ),
+    )
+    fields: list[KycFieldResult] | None = Field(
+        None,
+        description=(
+            "One row per comparable identity field.\n\n"
+            "**Absent from the case-level `kyc` on a two-party case**, "
+            "where every row is already published under the party it "
+            "belongs to and a second copy could not say whose was "
+            "whose. Present on a single-applicant case, and always "
+            "present inside a party's own `kyc`."
+        ),
+    )
+
+
+class CrossDocumentCheck(BaseModel):
+    """One named agreement check across the uploaded documents."""
+
+    check: str = Field(..., examples=["NAME", "DOB", "ADDRESS", "PAN", "INCOME"])
+    party_id: str | None = Field(
+        None,
+        description=(
+            "Whose documents this check ran over. Present only on a case "
+            "with a co-applicant, where two people each produce their own "
+            "NAME row and a reviewer has to tell them apart. Absent on a "
+            "single-applicant case, exactly as before.\n\n"
+            "Every check is scoped to ONE party. Nothing in this list "
+            "compares one applicant against another -- two people on a "
+            "joint application legitimately have different names, and "
+            "reporting that as a mismatch is a defect this field exists "
+            "to make visible."
+        ),
+        examples=["COAPP-7F2A11C4D9E0"],
+    )
+    status: str = Field(
+        ...,
+        description="SKIPPED means there was nothing to compare, not agreement.",
+        examples=["PASS", "REVIEW", "FAIL", "SKIPPED"],
+    )
+    reason_codes: list[str] = Field(default_factory=list)
+    sources: list[str] | None = Field(
+        None,
+        description=(
+            "The documents this check compared -- or, where it failed, the "
+            "ones that disagree."
+        ),
+        examples=[["pan.jpg", "itr.pdf"]],
+    )
+    details: dict[str, str] | None = Field(
+        None,
+        description=(
+            "What each document said for the compared field, by source_id. "
+            "Present only where the check did not pass, so a reviewer can "
+            "see the disagreement without reopening every file. These are "
+            "the same normalised values already published under "
+            "documents[].extraction -- never OCR text or candidates."
+        ),
+        examples=[{"pan.jpg": "MUKESH KUMAR", "dl.jpg": "RISHABH AJIT SINGH"}],
+    )
+
+
+class IncomeConsistency(BaseModel):
+    """
+    Whether the income documents tell one story.
+
+    A SIGNAL, NOT A VERDICT ON THE APPLICANT. A salary slip states what
+    an employer says it paid; a bank statement shows what arrived. They
+    differ for ordinary reasons -- a mid-month joining, reimbursements
+    paid separately, a deduction at source, a revision between the two
+    months, a second account. So a difference is REVIEW, meaning a
+    person should look, and never FRAUD, FAKE or REJECT.
+
+    SEPARATE FROM IDENTITY KYC and unable to affect it. Nothing here
+    changes the NAME, DATE_OF_BIRTH, PAN, FATHER_NAME or ADDRESS
+    verdicts, the KYC score, the case decision or the next action.
+    """
+
+    status: str = Field(
+        ...,
+        description=(
+            "PASS the stated and observed figures agree within the "
+            "configured tolerance. REVIEW they differ, or the evidence "
+            "is too thin to compare. SKIPPED one of the two documents "
+            "is absent or carries no figure -- which is NOT a failure."
+        ),
+        examples=["PASS", "REVIEW", "SKIPPED"],
+    )
+    reason_codes: list[str] = Field(
+        default_factory=list,
+        examples=[["INCOME_CONSISTENT"], ["INCOME_AMOUNT_MISMATCH"]],
+    )
+    bank_statement: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "What the statement evidenced: the recurring credit type, "
+            "the estimated monthly amount, how many months were observed "
+            "and how far the evidence can be relied on. Never a salary "
+            "figure -- a statement records money arriving, not why."
+        ),
+    )
+    salary_slip: dict[str, Any] | None = Field(
+        None,
+        description="The figure the slip states, and which figure it is.",
+    )
+    difference: str | None = Field(
+        None,
+        description=(
+            "Stated minus observed, absolute, as a decimal string. Present "
+            "only when both figures were. A STRING, like every other money "
+            "figure in this response: a float would round it."
+        ),
+        examples=["1500.00"],
+    )
+    tolerance: float | None = Field(
+        None, description="The configured tolerance this comparison applied."
+    )
+
+
+class CrossDocument(BaseModel):
+    """
+    Agreement between documents.
+
+    An object rather than a list of disagreements, because a bare list could
+    not distinguish "every field agreed" from "nothing was comparable" --
+    both arrived empty, and they mean opposite things to a reviewer.
+    """
+
+    status: str = Field(
+        ...,
+        description=(
+            "Worst of the checks that actually ran, capped by policy: a "
+            "failed check that is not marked blocking in kyc_policies.yaml "
+            "contributes at most REVIEW. Documents disagreeing routes the "
+            "case to a human; it is not treated as fraud. SKIPPED if nothing "
+            "was comparable."
+        ),
+        examples=["PASS", "REVIEW", "FAIL", "SKIPPED"],
+    )
+    checks: list[CrossDocumentCheck] = Field(default_factory=list)
+
+
+class ProfileMatchSource(BaseModel):
+    """The document a profile field was checked against."""
+
+    source_id: str = Field(..., examples=["pan.jpg"])
+    document_type: str | None = Field(None, examples=["PAN"])
+
+
+class ProfileFieldMatch(BaseModel):
+    """One declared field, compared against this party's own documents."""
+
+    field: str = Field(..., examples=["PAN_NUMBER"])
+    status: str = Field(
+        ...,
+        description=(
+            "PASS, PARTIAL, FAIL or SKIPPED. **SKIPPED is not a mismatch.** "
+            "It means the comparison could not be made -- the value was "
+            "never supplied, or no verified document released it."
+        ),
+        examples=["PASS", "PARTIAL", "FAIL", "SKIPPED"],
+    )
+    match_score: int = Field(
+        ...,
+        description=(
+            "0-100, how closely the two values agree. 0 on a SKIPPED field "
+            "means nothing was compared, not that nothing matched."
+        ),
+        examples=[100],
+    )
+    confidence: int = Field(
+        ...,
+        description=(
+            "0-100, how far that answer can be relied on. NOT a rescale of "
+            "match_score: a perfect match read off a poor photograph is a "
+            "high score at a lower confidence."
+        ),
+        examples=[94],
+    )
+    reason_code: str | None = Field(None, examples=["PROFILE_MATCH"])
+    reason: str | None = Field(
+        None,
+        examples=["The PAN on PAN matches the one supplied for this party."],
+    )
+    source: ProfileMatchSource | None = None
+
+
+class PartyProfileMatch(BaseModel):
+    """
+    One party's declared profile against that party's own documents.
+
+    SEPARATE FROM KYC, AND SEPARATE PER PARTY. KYC asks whether the
+    documents agree with each other; this asks whether they describe the
+    person the application declared. The primary applicant's profile is
+    only ever compared with the primary applicant's documents.
+
+    IT DECIDES NOTHING. Every verdict, reason code and score elsewhere in
+    this response is what verification found, with or without this block.
+    """
+
+    party_id: str = Field(..., examples=["APP-1"])
+    party_role: str = Field(..., examples=["PRIMARY_APPLICANT", "CO_APPLICANT"])
+    score: int = Field(
+        ...,
+        description=(
+            "0-100 over the fields ACTUALLY COMPARED. A field nobody could "
+            "compare contributes nothing, so a gap never reads as a "
+            "disagreement -- read it beside fields_compared."
+        ),
+        examples=[100],
+    )
+    confidence: int = Field(..., examples=[94])
+    fields_expected: int = Field(
+        ..., description="Declared for this party.", examples=[3]
+    )
+    fields_extracted: int = Field(
+        ..., description="Released by this party's documents.", examples=[2]
+    )
+    fields_compared: int = Field(
+        ...,
+        description="Present on both sides, so actually checked.",
+        examples=[2],
+    )
+    fields: list[ProfileFieldMatch] = Field(default_factory=list)
+
+
+class PartyVerificationSummary(BaseModel):
+    """
+    How one party's documents came out, counted.
+
+    DERIVED, NEVER DECIDED. Every number is a tally of verdicts
+    verification already reached; nothing here can change an outcome. The
+    four buckets always sum to `total_documents`.
+    """
+
+    total_documents: int = Field(..., examples=[3])
+    passed: int = Field(..., examples=[2])
+    review: int = Field(..., examples=[1])
+    failed: int = Field(
+        ...,
+        description=(
+            "FAILED and REJECTED together: one means the file could not "
+            "be processed and the other that it was processed and "
+            "refused, and triage treats both the same. The distinction "
+            "survives on each document's own `verification`."
+        ),
+        examples=[0],
+    )
+    skipped: int = Field(..., examples=[0])
+
+
+class PartyIssue(BaseModel):
+    """One thing wrong, as a reader acts on it."""
+
+    code: str = Field(..., examples=["NAME_MISMATCH"])
+    message: str | None = Field(
+        None,
+        description=(
+            "The code in words. Absent for a code with no entry in the "
+            "lookup -- a sentence guessed from a code that does not "
+            "carry the fact would be a fabrication with a citation."
+        ),
+    )
+    source_id: str | None = Field(
+        None, description="The document this came from, where it was one."
+    )
+    party: str | None = Field(
+        None,
+        description=(
+            "Whose issue this is. Present in the application-level "
+            "`overall.issues`, where both parties' issues share one "
+            "list; absent inside a party's own section, where it would "
+            "repeat the section's own identity."
+        ),
+        examples=["CO_APPLICANT"],
+    )
+
+
+class PartyVerification(BaseModel):
+    """
+    How one party's documents came out.
+
+    The same verdicts `verification_summary` counts, read as a status
+    and its reasons. **Null when the party sent nothing** -- not an
+    object reading SKIPPED, which would claim verification looked.
+    """
+
+    status: str = Field(..., examples=["PASS", "REVIEW", "FAIL"])
+    issues: list[PartyIssue] = Field(default_factory=list)
+
+
+class ProcessingSummary(BaseModel):
+    """What was handled, and how long it took."""
+
+    documents_received: int
+    documents_processed: int = Field(
+        ...,
+        description=(
+            "Equal to `documents_received` by construction: every "
+            "upload produces a result row, including one that failed, "
+            "so nothing received can go unprocessed. Both are published "
+            "so a reader can see that rather than trust it."
+        ),
+    )
+
+
+class ApplicationOverview(BaseModel):
+    """
+    The application in one object: what happened, and whose problem it is.
+
+    PURELY A REGROUPING. `status`, `decision` and `next_action` are the
+    very values published at top level, produced by the existing rules;
+    the issues are each party's own recorded reason codes, tagged with
+    whose they are. Nothing here ranks or re-derives any of it.
+    """
+
+    status: str = Field(..., examples=["SUCCESS", "PARTIAL", "REVIEW"])
+    decision: str = Field(..., examples=["PASS", "REVIEW", "REJECT"])
+    next_action: str = Field(..., examples=["MANUAL_REVIEW", "CONTINUE"])
+    issues: list[PartyIssue] = Field(
+        default_factory=list,
+        description="Every party's issues in one list, each tagged with whose.",
+    )
+    missing: list[dict[str, str]] = Field(
+        default_factory=list,
+        description=(
+            "**Always empty.** This endpoint has no checklist: "
+            "required-document policy lives in the applicant agent and "
+            "is never computed here. The key is present because its "
+            "absence would read as \"nothing is missing\", which is a "
+            "claim this endpoint cannot make."
+        ),
+    )
+    summary: str = Field(
+        ...,
+        description=(
+            "Why the application stands where it does, one party at a "
+            "time. DETERMINISTIC and separate from the top-level "
+            "`summary`, which a model may write."
+        ),
+        examples=["Primary applicant verification passed. Co-applicant "
+                  "verification requires review due to NAME_MISMATCH."],
+    )
+    processing_summary: ProcessingSummary
+
+
+class PartySection(BaseModel):
+    """
+    One party's slice of the response: whose, what they sent, how it went.
+
+    A REGROUPING, NOT A SECOND RESULT. `document_ids` names this
+    party's entries in the top-level `documents[]`, split by the
+    `party_id` stamped on each one -- never by filename or document
+    type, because both parties routinely upload `pan.jpg` and both
+    routinely send a PAN.
+
+    `primary_applicant` is always present. `co_applicant` appears only
+    when the case actually has a second party.
+    """
+
+    party_id: str = Field(..., examples=["APP-1"])
+    role: str = Field(..., examples=["PRIMARY_APPLICANT", "CO_APPLICANT"])
+    status: str | None = Field(
+        None,
+        description=(
+            "**This party's document and KYC state only** -- the same "
+            "worst-wins roll-up the case uses, over this party's own "
+            "documents and their own KYC.\n\n"
+            "It is NOT a decision and there is deliberately no "
+            "party-level `next_action`: a party-level CONTINUE beside a "
+            "case-level MANUAL_REVIEW would read as permission to "
+            "proceed. There is ONE decision on a loan, and `decision` "
+            "and `next_action` stay at the top level where they are "
+            "true.\n\n"
+            "A party who has been declared but has uploaded nothing "
+            "reports REVIEW, never SUCCESS -- nothing is known about "
+            "them yet."
+        ),
+        examples=["SUCCESS", "PARTIAL", "REVIEW", "REJECTED", "FAILED"],
+    )
+    document_ids: list[str] = Field(
+        default_factory=list,
+        description=(
+            "This party's documents, by `source_id` -- the filename as "
+            "uploaded.\n\n"
+            "**References, not copies.** The full objects are published "
+            "once in the top-level `documents[]`, each already carrying "
+            "its own `party_id`; repeating them here put every document "
+            "in the response twice. Join on `source_id` within a party, "
+            "or filter `documents[]` by `party_id` directly."
+        ),
+        examples=[["pan.jpg", "dl.jpg"]],
+    )
+    verification_summary: PartyVerificationSummary
+    verification: PartyVerification | None = Field(
+        None,
+        description=(
+            "This party's verification outcome. **Null** when they sent "
+            "nothing -- absent input is not a verdict."
+        ),
+    )
+    profile_match: PartyProfileMatch | None = Field(
+        None,
+        description=(
+            "**Absent** when this party had no declared or stored profile "
+            "to match -- an empty object would read as 'we matched and "
+            "found nothing', which is a much stronger claim."
+        ),
+    )
+    kyc: KycSummary | None = Field(
+        None,
+        description=(
+            "**This party's own** cross-document KYC: do THEIR documents "
+            "describe one person? Never compared against the other "
+            "party's documents -- two people disagreeing is what a joint "
+            "application IS, not evidence against it. Absent when this "
+            "party released nothing to cross-check."
+        ),
+    )
+
+
+class LosProcessResponse(BaseModel):
+    """One applicant's documents, processed end to end."""
+
+    request_id: str = Field(..., examples=["los_8604ee9d1f2b4c0a9e7d3f1a2b3c4d5e"])
+    applicant_id: str | None = None
+    co_applicant_id: str | None = Field(
+        None,
+        description=(
+            "The second party on this case. **Absent entirely** on a "
+            "single-applicant case — a null here would read as 'there is "
+            "a co-applicant and we do not know who'. Both parties share "
+            "the one `case_id`; each document says which of them it "
+            "belongs to in `documents[].party_id`."
+        ),
+        examples=["COAPP-7F2A11C4D9E0"],
+    )
+    case_id: str = Field(
+        ...,
+        description="Generated when none is supplied. One applicant may hold several.",
+    )
+    status: str = Field(
+        ...,
+        description="Worst-wins across every document and the KYC result.",
+        examples=["SUCCESS", "PARTIAL", "REVIEW", "REJECTED", "FAILED"],
+    )
+    documents: list[ProcessedDocument]
+    kyc: KycSummary
+    cross_document: CrossDocument
+    income_consistency: IncomeConsistency | None = Field(
+        None,
+        description=(
+            "Whether the salary slip and the bank statement agree about "
+            "income. Absent when the caller's stage did not run the "
+            "comparison -- a FOS upload verifies documents and has no "
+            "authority to say anything about income."
+        ),
+    )
+    # Typed loosely on purpose. Each stage owns its own schema --
+    # `eligibility.domain.models.EligibilityResult` and
+    # `shared.fraud_risk.schemas.FraudRiskResponse` -- and restating
+    # them here would be a second definition to keep in step with the
+    # first. This documents that the keys exist and what they mean.
+    eligibility: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "Whether the affordability policy is satisfied on the "
+            "evidence available: status, reason codes, and the figures "
+            "behind them (income used and its source, obligations and "
+            "their source, proposed EMI, FOIR, threshold).\n\n"
+            "**NOT A LENDING DECISION.** A PASS says the affordability "
+            "policy is satisfied; approving a loan weighs risk, RCU and "
+            "a human. `decision` is computed without reading this. "
+            "Absent when the caller's stage did not run it."
+        ),
+    )
+    risk: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "Risk signals from the deterministic risk engine. The FOIR "
+            "rule BANDS the percentage `eligibility` published and does "
+            "not compute a second one. `decision` is computed without "
+            "reading this. Absent when the caller's stage did not run it."
+        ),
+    )
+    decision: str = Field(
+        ...,
+        description=(
+            "The deterministic outcome. NOT a credit decision and not an "
+            "underwriting verdict: it restates the roll-up under a name a "
+            "client can read. PASS requires that something was actually "
+            "verified."
+        ),
+        examples=["PASS", "REVIEW", "REJECT"],
+    )
+    next_action: str = Field(
+        ...,
+        description=(
+            "What should happen to this application next, derived from "
+            "results that are already final. `REQUEST_CORRECT_DOCUMENT` "
+            "means the wrong file was sent and "
+            "`REQUEST_VALID_DOCUMENT` that the right one could not be "
+            "read -- the applicant has to do different things about "
+            "those two.\n\n"
+            "Case-level and authoritative: there is no party-level "
+            "`next_action`, because one beside a case-level "
+            "`MANUAL_REVIEW` would read as permission to proceed."
+        ),
+        examples=["CONTINUE", "MANUAL_REVIEW", "REQUEST_VALID_DOCUMENT",
+                  "REQUEST_CORRECT_DOCUMENT"],
+    )
+    summary: str = Field(..., description="One sentence. Never decides anything.")
+    summary_source: str = Field(
+        ...,
+        description=(
+            "Who wrote the summary sentence. Published because a client "
+            "showing it to a human needs to know whether a model produced "
+            "it; every decision above was already final when it was written."
+        ),
+        examples=["deterministic", "llm"],
+    )
+    processing_ms: float = Field(
+        ..., description="How long the call took. Stage timings stay internal."
+    )
+    profile_match: list[PartyProfileMatch] | None = Field(
+        None,
+        description=(
+            "One entry per party whose profile was supplied or held on "
+            "file. **Absent entirely** when no profile was available to "
+            "match -- this block is additional evidence and never changes "
+            "a verdict above."
+        ),
+    )
+    overall: ApplicationOverview | None = Field(
+        None,
+        description=(
+            "The application in one object. Additive: every value in it "
+            "is also published at top level or inside a party section, "
+            "so an existing caller is unaffected."
+        ),
+    )
+    primary_applicant: PartySection | None = Field(
+        None,
+        description=(
+            "The primary applicant's documents, profile match and "
+            "verification counts, grouped. The same results as the "
+            "top-level fields, not a second computation."
+        ),
+    )
+    co_applicant: PartySection | None = Field(
+        None,
+        description=(
+            "**Absent entirely** on a single-applicant case. Present only "
+            "when the request supplied a second party."
+        ),
+    )
+    errors: list[DocumentError] = Field(default_factory=list)
+
+
+__all__ = [
+    "LosProcessResponse", "ProcessedDocument", "SpecialistVerdict",
+    "SignatureFinding", "EvidenceRef", "KycSummary", "KycFieldResult",
+    "KycFieldSource", "CrossDocument",
+    "CrossDocumentCheck", "DocumentError",
+    "PartyProfileMatch", "ProfileFieldMatch", "ProfileMatchSource",
+    "PartySection", "PartyVerificationSummary",
+]
