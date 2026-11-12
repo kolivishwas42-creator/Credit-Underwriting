@@ -42,6 +42,20 @@ export interface SummaryProps {
   loading?: boolean;
   /** shown when there are no points */
   empty?: string;
+  /** AT A GLANCE (owner 2026-11-12, Crime's indicator back): one chip per person under the summary points --
+   *  who, name and their level, by colour AND word */
+  glance?: GlanceItem[];
+  glanceTitle?: string;
+}
+
+export interface GlanceItem {
+  id: string;
+  /** the role ("Applicant", "Co-Applicant 2") */
+  who: string;
+  name: string;
+  /** the level in words ("Low risk", "High risk") */
+  level: string;
+  tone: Tone;
 }
 
 /** 3a. One rule's result. */
@@ -108,4 +122,6 @@ export interface ResultPageProps {
   children?: ReactNode;
   /** open "More details" from the start (e.g. it holds the decision remarks) */
   detailsOpen?: boolean;
+  /** the agent's own picture, shown in Overview right under the AI summary (e.g. Crime's risk gauge per person) */
+  overview?: ReactNode;
 }

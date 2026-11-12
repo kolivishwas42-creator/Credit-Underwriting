@@ -22,6 +22,8 @@ body { background: var(--canvas); color: var(--text-primary); font-family: var(-
   border: 0; border-radius: var(--r-sm); background: none; box-shadow: none; color: var(--text-primary);
   font: inherit; text-align: left; cursor: pointer; }
 #cu-shell .cu-logo { flex: none; display: block; }
+/* the console mark keeps its size on every tab: an agent's blanket "svg { width: 18px }" (Dedupe) shrank it */
+#cu-shell .cu-top svg.cu-logo { width: 32px; height: 32px; }
 #cu-shell .cu-brand-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
 #cu-shell .cu-brand-text b { font: 600 15px var(--font-display); white-space: nowrap; }
 #cu-shell .cu-brand-text span { color: var(--text-secondary); font-size: 11.5px; white-space: nowrap; }
@@ -390,3 +392,124 @@ html:root:root[class*="agent-"] .agent-root .cu-frame-main { min-width: 0; }
 
 /* the page you are on: bold black number (owner 2026-11-12) */
 :root .cu-ui .cu-pager-btn.is-current { color: #000; font-weight: 800; }
+
+/* ---------- RULES SETTINGS: the common Rules screen of every agent (owner 2026-11-12) ---------- */
+html:root:root[class*="agent-"] .agent-root .cu-rules { display: flex; flex-direction: column; gap: 14px; padding: 20px 24px 32px; max-width: 1200px; }
+html:root:root[class*="agent-"] .agent-root .cu-rules-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; }
+html:root:root[class*="agent-"] .agent-root .cu-rules-head h2 { margin: 0; font-size: 22px; line-height: 28px; }
+html:root:root[class*="agent-"] .agent-root .cu-rules-head p { margin: 4px 0 0; color: #64748B; font-size: 14px; }
+html:root:root[class*="agent-"] .agent-root .cu-rules-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+html:root:root[class*="agent-"] .agent-root .cu-rules-count { padding: 4px 10px; border-radius: 6px; background: #EEF3FF; color: #253DA3; font-size: 13px; font-weight: 600; }
+html:root:root[class*="agent-"] .agent-root .cu-rules-btn { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 8px;
+  border: 1px solid #E2E8F0; background: #fff; color: #334155; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+html:root:root[class*="agent-"] .agent-root .cu-rules-btn:hover:not(:disabled) { border-color: #B8C8FF; background: #F5F8FF; color: #253DA3; }
+html:root:root[class*="agent-"] .agent-root .cu-rules-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }
+html:root:root[class*="agent-"] .agent-root .cu-rules-btn.is-primary { border-color: transparent; color: #fff; background: linear-gradient(120deg, #1E1B4B, #312E81 55%, #3B57D6); }
+html:root:root[class*="agent-"] .agent-root .cu-rules-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+html:root:root[class*="agent-"] .agent-root .cu-rules-groups { display: inline-flex; padding: 3px; border-radius: 8px; background: #F1F5F9; }
+html:root:root[class*="agent-"] .agent-root .cu-rules-groups button { height: 32px; padding: 0 14px; border: 0; border-radius: 6px; background: transparent; color: #475569; font: inherit; font-weight: 600; cursor: pointer; }
+html:root:root[class*="agent-"] .agent-root .cu-rules-groups button.is-on { background: #fff; color: #253DA3; box-shadow: 0 1px 3px rgba(16, 24, 40, .08); }
+html:root:root[class*="agent-"] .agent-root .cu-rules-search { flex: 1 1 260px; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px;
+  border: 1px solid #E2E8F0; border-radius: 8px; background: #fff; }
+html:root:root[class*="agent-"] .agent-root .cu-rules-search svg { width: 16px; height: 16px; fill: none; stroke: #64748B; stroke-width: 2; flex: none; }
+html:root:root[class*="agent-"] .agent-root .cu-rules-search input { flex: 1; min-width: 0; border: 0 !important; outline: none; box-shadow: none !important; background: transparent; font: inherit; }
+html:root:root[class*="agent-"] .agent-root .cu-rules-error { padding: 10px 12px; border-radius: 8px; background: #FEE2E2; color: #991B1B; font-size: 14px; }
+html:root:root[class*="agent-"] .agent-root .cu-rules-empty { padding: 24px; text-align: center; color: #64748B; }
+html:root:root[class*="agent-"] .agent-root .cu-rules-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap: 12px; }
+html:root:root[class*="agent-"] .agent-root .cu-rule { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border: 1px solid #E2E8F0; border-radius: 12px; background: #fff; }
+html:root:root[class*="agent-"] .agent-root .cu-rule.is-off { background: #F8FAFC; }
+html:root:root[class*="agent-"] .agent-root .cu-rule.is-off .cu-rule-name b { color: #64748B; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-top { display: flex; align-items: flex-start; gap: 12px; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-name { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-name b { font-weight: 600; color: #0F172A; overflow-wrap: anywhere; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-name code { padding: 1px 6px; border-radius: 6px; background: #F1F5F9; color: #475569; font-size: 12px; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-state { padding: 1px 8px; border-radius: 6px; background: #F1F5F9; color: #64748B; font-size: 12px; font-weight: 700; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-state.is-on { background: #DCFCE7; color: #166534; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-saved { display: inline-flex; align-items: center; gap: 4px; color: #166534; font-size: 12px; font-weight: 600; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-saved svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.4; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-desc { margin: 0; color: #475569; font-size: 13px; line-height: 19px; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-fields { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; padding-top: 6px; border-top: 1px dashed #E2E8F0; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-fields label { display: flex; flex-direction: column; gap: 4px; min-width: 120px; flex: 1 1 140px; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-fields small { color: #64748B; font-size: 12px; font-weight: 600; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-fields input { height: 40px; padding: 0 10px; border: 1.5px solid #CBD5E1; border-radius: 8px; font: inherit; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-fields select { min-height: 40px !important; }
+/* the on / off switch: a word beside it too (never colour alone) */
+html:root:root[class*="agent-"] .agent-root .cu-switch { position: relative; flex: none; width: 42px; height: 24px; margin-top: 1px; padding: 0; border: 0; border-radius: 999px;
+  background: #CBD5E1; cursor: pointer; transition: background .15s; }
+html:root:root[class*="agent-"] .agent-root .cu-switch i { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 999px; background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .25); transition: transform .15s; }
+html:root:root[class*="agent-"] .agent-root .cu-switch.is-on { background: #16A34A; }
+html:root:root[class*="agent-"] .agent-root .cu-switch.is-on i { transform: translateX(18px); }
+html:root:root[class*="agent-"] .agent-root .cu-switch:disabled { opacity: .6; cursor: progress; }
+html:root:root[class*="agent-"] .agent-root .cu-switch:focus-visible { outline: 2px solid #3B57D6; outline-offset: 2px; }
+@media (max-width: 640px) { html:root:root[class*="agent-"] .agent-root .cu-rules { padding: 14px 12px 24px; } }
+
+/* ONE "selected menu item" look on every agent (owner 2026-11-12 UI pass): Crime and Dedupe have their own sidebars and
+   showed a white box with a left stripe; they now match the common frame (solid sapphire, white text and icon). */
+html:root:root.agent-crime_verification .agent-root .sidebar a.is-active,
+html:root:root.agent-dedupe .agent-root .nav-item.is-active {
+  background: linear-gradient(120deg, #1E1B4B, #312E81 55%, #3B57D6) !important; color: #fff !important;
+  border-color: transparent !important; box-shadow: 0 8px 18px -12px rgba(37, 61, 163, .8) !important; }
+html:root:root.agent-crime_verification .agent-root .sidebar a.is-active svg,
+html:root:root.agent-dedupe .agent-root .nav-item.is-active svg { color: #fff !important; stroke: #fff !important; }
+html:root:root.agent-crime_verification .agent-root .sidebar a.is-active::before,
+html:root:root.agent-dedupe .agent-root .nav-item.is-active::before { display: none !important; }
+
+/* finger-sized buttons on a phone (owner 2026-11-12 UI pass: 28px theme / header buttons) */
+@media (max-width: 640px) {
+  html:root:root[class*="agent-"] .agent-root :is(#theme-btn, .theme-btn, .mantine-ActionIcon-root, .mantine-Burger-root) { min-width: 36px; min-height: 36px; }
+}
+
+/* rules settings: an "always on" switch, and the Add rule form (owner 2026-11-12) */
+html:root:root[class*="agent-"] .agent-root .cu-switch.is-locked { background: #94A3B8; cursor: not-allowed; opacity: 1; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-add { display: flex; flex-direction: column; gap: 10px; padding: 16px 18px; border: 1px solid #B8C8FF;
+  border-radius: 12px; background: #F5F8FF; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-add h3 { margin: 0; font-size: 16px; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-add p { margin: 0; color: #475569; font-size: 13px; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-add-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 10px; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-add-grid label { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-add-grid label.is-wide { grid-column: 1 / -1; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-add-grid small { color: #475569; font-size: 12px; font-weight: 600; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-add-grid input { height: 40px; padding: 0 10px; border: 1.5px solid #CBD5E1; border-radius: 8px; font: inherit; background: #fff; }
+html:root:root[class*="agent-"] .agent-root .cu-rule-add-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* the Rules settings button + panel for agents with their own sidebar (owner 2026-11-12) */
+html:root:root[class*="agent-"] .agent-root .cu-rules-open { position: fixed; right: 20px; bottom: 20px; z-index: 40; display: inline-flex;
+  align-items: center; gap: 8px; height: 40px; padding: 0 16px; border: 0; border-radius: 999px; color: #fff; font: inherit; font-weight: 600;
+  background: linear-gradient(120deg, #1E1B4B, #312E81 55%, #3B57D6); box-shadow: 0 12px 28px -12px rgba(37, 61, 163, .9); cursor: pointer; }
+html:root:root[class*="agent-"] .agent-root .cu-rules-open svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }
+html:root:root[class*="agent-"] .agent-root .cu-rules-panel { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end;
+  background: rgba(15, 23, 42, .35); }
+html:root:root[class*="agent-"] .agent-root .cu-rules-panel-box { width: min(1100px, 100%); height: 100%; overflow: auto; background: #F4F6FA;
+  box-shadow: -18px 0 40px -20px rgba(15, 23, 42, .5); }
+
+/* ---------- HOVER TEXT, modern yet simple, on every agent (owner 2026-11-12) ----------
+   the bubble of useModernTooltips (replaces the browser's own title box) and Legal's Mantine tooltips, one look */
+.cu-tip { position: fixed; z-index: 1000; max-width: 280px; padding: 6px 10px; border-radius: 8px; background: #0F172A; color: #F8FAFC;
+  font: 500 12.5px/18px "Lexend", "Inter", -apple-system, "Segoe UI", sans-serif; letter-spacing: 0; white-space: pre-line;
+  overflow-wrap: anywhere; box-shadow: 0 10px 24px -8px rgba(15, 23, 42, .45); pointer-events: none;
+  opacity: 0; transform: translateY(3px); transition: opacity .12s ease, transform .12s ease; }
+.cu-tip[data-side="below"] { transform: translateY(-3px); }
+.cu-tip.is-on { opacity: 1; transform: none; }
+.cu-tip::after { content: ""; position: absolute; left: var(--arrow-x, 50%); width: 8px; height: 8px; margin-left: -4px;
+  background: #0F172A; transform: rotate(45deg); bottom: -4px; }
+.cu-tip[data-side="below"]::after { bottom: auto; top: -4px; }
+@media (prefers-reduced-motion: reduce) { .cu-tip { transition: none; transform: none; } }
+html.agent-legal_verification .mantine-Tooltip-tooltip { padding: 6px 10px; border-radius: 8px; background: #0F172A; color: #F8FAFC;
+  font: 500 12.5px/18px "Lexend", sans-serif; box-shadow: 0 10px 24px -8px rgba(15, 23, 42, .45); }
+
+/* the hover bubble, refined (owner 2026-11-12: "aur achha karo"): a deep navy-to-slate gradient in the console's
+   colours, a faint inner edge, softer shadow, a small scale-and-fade in; a "label: text" shows the label as a bold first
+   line. Still one small, simple bubble. */
+.cu-tip { padding: 7px 11px; border-radius: 10px; background: linear-gradient(135deg, #1E1B4B 0%, #0F172A 70%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08), 0 14px 30px -10px rgba(15, 23, 42, .55), 0 2px 6px rgba(15, 23, 42, .18);
+  transform: translateY(4px) scale(.96); transform-origin: 50% 100%;
+  transition: opacity .14s ease, transform .16s cubic-bezier(.2, .9, .3, 1.2); }
+.cu-tip[data-side="below"] { transform: translateY(-4px) scale(.96); transform-origin: 50% 0; }
+.cu-tip.is-on { transform: none; }
+.cu-tip::after { width: 9px; height: 9px; margin-left: -4.5px; border-radius: 2px; background: #141A3A;
+  box-shadow: inset -1px -1px 0 rgba(255, 255, 255, .06); }
+.cu-tip[data-side="below"]::after { background: #1C1A48; box-shadow: inset 1px 1px 0 rgba(255, 255, 255, .06); }
+.cu-tip .cu-tip-head { display: block; margin-bottom: 2px; color: #C7D2FE; font-size: 11.5px; font-weight: 600; letter-spacing: .01em; }
+.cu-tip .cu-tip-body { display: block; color: #F8FAFC; }
+@media (prefers-reduced-motion: reduce) { .cu-tip, .cu-tip[data-side="below"] { transform: none; transition: opacity .1s; } }

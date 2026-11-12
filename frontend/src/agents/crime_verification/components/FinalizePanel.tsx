@@ -17,13 +17,25 @@ export function FinalizePanel({ kase, config, onDone }: { kase: Case; config: Ui
 
   if (kase.final_decision) {
     return (
-      <Card title={t("finalize.done_title")} className="finalize done">
-        <div className="final-line">
-          <Badge value={kase.final_decision} label={kase.final_decision_label} />
-          <span className="muted small">{t("finalize.by", { who: kase.finalized_by ?? "—", when: when(kase.finalized_at) })}</span>
-        </div>
-        {kase.final_remarks && <p className="remarks">“{kase.final_remarks}”</p>}
-      </Card>
+      // THE DECISION RECORD (owner 2026-11-12: "yeh proper nahi hai"): a clear record, not a loose line -- the
+      // decision, who and when as labelled fields, and the remarks in their own box
+      <section className="finalize done final-record" aria-label={t("finalize.done_title")}>
+        <header className="final-head">
+          <span className="final-icon" aria-hidden="true"><Icon name="check" size={18} /></span>
+          <h3>{t("finalize.done_title")}</h3>
+        </header>
+        <dl className="final-grid">
+          <div><dt>{t("finalize.decision")}</dt><dd><Badge value={kase.final_decision} label={kase.final_decision_label} /></dd></div>
+          <div><dt>{t("finalize.done_by")}</dt><dd>{kase.finalized_by ?? "—"}</dd></div>
+          <div><dt>{t("finalize.done_on")}</dt><dd>{when(kase.finalized_at)}</dd></div>
+        </dl>
+        {kase.final_remarks && (
+          <figure className="final-remarks">
+            <figcaption>{t("finalize.remarks")}</figcaption>
+            <blockquote>{kase.final_remarks}</blockquote>
+          </figure>
+        )}
+      </section>
     );
   }
   if (!kase.can.finalize) return null;

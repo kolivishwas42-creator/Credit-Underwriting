@@ -6,6 +6,7 @@
 # =====================================================================================================================
 
 common:
+  rule_disabled: "Switched off in the rule settings."
   statement: "Statement"
   aa_data: "AA data"
   not_in_source: "not in the {source}"

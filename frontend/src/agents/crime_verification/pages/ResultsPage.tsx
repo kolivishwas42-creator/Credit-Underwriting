@@ -5,6 +5,8 @@ import { Celebration } from "../components/Celebration";
 import { FinalizePanel } from "../components/FinalizePanel";
 import { Icon } from "../components/Icon";
 import { ResultPanel } from "../components/ResultPanel";
+import { LEVELS } from "../components/RiskGauge";
+import { RiskOverview } from "../components/RiskOverview";
 import { Badge, Card, Empty, Notice } from "../components/ui";
 import { ApiError, api } from "../services/api";
 import type { ApplicationView, AuditEvent, Case, CaseSummary, UiConfig } from "../types/api";
@@ -205,7 +207,8 @@ export function ResultsPage({ caseId, config, onBack }: { caseId: string; config
 
       {flash && <Notice kind={flash.kind}>{flash.text}</Notice>}
 
-      <ResultPage {...page}>
+      <ResultPage {...page} overview={
+        <RiskOverview people={kase.subjects} labels={config.risk.labels} arcLabels={config.risk.short} order={[...LEVELS].reverse()} />}>
         {kase.can.refresh && (
           <div className="refresh-bar card">
             <span className="radar sm" aria-hidden="true"><span className="radar-sweep" /></span>

@@ -45,6 +45,8 @@ statuses:
   DECIDED: "Decided"
   WAIVED: "Waived"
 
+rule_disabled: "Switched off in the rule settings."
+
 rule_statuses:
   FAIL: "Mismatch"
   REVIEW: "Needs review"

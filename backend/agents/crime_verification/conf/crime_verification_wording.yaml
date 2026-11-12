@@ -368,6 +368,8 @@ screen:
     show_review: "Needs review ({n})"
     none_review: "Nobody needs review."
     cases_n: "{n} found"
+    gauges_more: "+{n} more"
+    gauges_fewer: "Show fewer"
     working_title: "The provider is still working on this case."
     working_text: "Results appear here as soon as they are in."
     refresh: "Refresh status"
@@ -408,6 +410,8 @@ screen:
   steps: { details: "Details", confirm: "Confirmed", provider: "With provider", results: "Results", decision: "Decision" }
   finalize:
     done_title: "Result acknowledged"
+    done_by: "Acknowledged by"
+    done_on: "On"
     by: "by {who} · {when}"
     title: "Acknowledge results"
     subtitle: "Record the credit officer's decision on this verification."

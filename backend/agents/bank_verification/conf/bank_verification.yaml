@@ -172,6 +172,17 @@ reference_source:
   AA_SUCCESS: [AA, STATEMENT]
   AA_FAILURE: [STATEMENT]
 
+# RULE ON / OFF (owner 2026-11-12): a rule switched off is "Not applicable" -- R8 (overall risk) leaves it out and never
+# switches off itself. Changed from the Rules settings screen (a new version of these rules, who / when recorded).
+rule_switches:
+  R1: { enabled: true }
+  R2: { enabled: true }
+  R3: { enabled: true }
+  R4: { enabled: true }
+  R5: { enabled: true }
+  R6: { enabled: true }
+  R7: { enabled: true }
+
 latest_transactions:
   count: 3
   # the statement's LATEST rows are only trusted when the read reached its end: a row on the newest date carries the
