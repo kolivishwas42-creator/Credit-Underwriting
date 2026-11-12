@@ -17,7 +17,7 @@ param(
     [int]$BackendPort = 8010,
     [int]$FrontendPort = 5190,
     [int]$LosPort = 8011,
-    [string]$LosDir = (Join-Path $env:USERPROFILE "Downloads\los-agentic-ai-optimised\V21\gz\LOS-agentic-ai"),
+    [string]$LosDir = "",            # empty = found automatically (see "where is the LOS server" below)
     [switch]$NoLos,
     [switch]$NoBrowser
 )
@@ -46,10 +46,33 @@ function Wait-Api($name, $proc, $port, $log) {
 
 # ---- checks before anything starts
 if (-not (Test-Path $python)) { throw "backend\.venv is missing: run start.ps1 once (it creates it), or create the venv and pip install -r requirements.txt" }
-$losPython = Join-Path $LosDir "..\..\..\.venv\Scripts\python.exe"
-if (-not $NoLos -and -not ((Test-Path (Join-Path $LosDir "main.py")) -and (Test-Path $losPython))) {
-    Write-Host "LOS server not found at $LosDir (or its .venv) - starting without it; Dedupe 'New application' will not be available." -ForegroundColor Yellow
-    $NoLos = $true
+# where is the LOS server: -LosDir, else a clone of the LOS repo next to this folder (git clone ... LOS-agent-anii-handover),
+# else the original laptop's folder. Its python: a .venv in the LOS folder, else in the repo root, else 3 levels up.
+$losCandidates = @()
+if ($LosDir) { $losCandidates += $LosDir }
+$losCandidates += @(
+    (Join-Path (Split-Path -Parent $root) "LOS-agent-anii-handover\LOS-agentic-ai"),
+    (Join-Path (Split-Path -Parent $root) "LOS-agentic-ai"),
+    (Join-Path $env:USERPROFILE "Downloads\los-agentic-ai-optimised\V21\gz\LOS-agentic-ai")
+)
+$losPython = $null
+if (-not $NoLos) {
+    foreach ($dir in $losCandidates) {
+        if (-not (Test-Path (Join-Path $dir "main.py"))) { continue }
+        foreach ($venv in @(".venv", "..\.venv", "..\..\..\.venv")) {
+            $exe = Join-Path $dir "$venv\Scripts\python.exe"
+            if (Test-Path $exe) { $LosDir = (Resolve-Path $dir).Path; $losPython = (Resolve-Path $exe).Path; break }
+        }
+        if ($losPython) { break }
+        Write-Host "LOS repo found at $dir but it has no .venv yet: cd there, py -3.12 -m venv .venv, .venv\Scripts\python -m pip install -r requirements.txt" -ForegroundColor Yellow
+    }
+    if (-not $losPython) {
+        Write-Host "LOS server not found - starting without it; Dedupe 'New application' will not be available." -ForegroundColor Yellow
+        Write-Host "  to add it: clone the LOS repo next to this folder (see README / dev.ps1), or pass -LosDir <its LOS-agentic-ai folder>" -ForegroundColor Yellow
+        $NoLos = $true
+    } else {
+        Write-Host "LOS server found: $LosDir" -ForegroundColor Cyan
+    }
 }
 $ports = @($BackendPort, $FrontendPort) + $(if ($NoLos) { @() } else { @($LosPort) })
 foreach ($port in $ports) {
