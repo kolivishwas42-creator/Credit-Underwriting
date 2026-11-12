@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import {
   COMPARE_PAIRS, COMPARE_WORDS, DECISION_WORDS, KEY_NUMBER_MAX_CHARS, KEY_NUMBERS_MAX, LINK_MIN_SHARE, LINK_MIN_WORDS,
-  LINK_STOP_WORDS, NEXT_STEP_STARTS, UPPER_WORDS,
+  LINK_STOP_WORDS, MORE_PASSED, NEXT_STEP_STARTS, ROUTINE_DETAIL, STRENGTHS_SHOWN, UPPER_WORDS,
 } from "../../../config/result";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
@@ -159,7 +159,15 @@ function Concerns({ items, onRule }: { items: RuleRow[]; onRule?: (id: string) =
               <li key={`${r.id}|${r.name}`} className={`is-${r.outcome}`}>
                 <button type="button" className="cu-r-side-btn" disabled={!onRule} onClick={() => onRule?.(r.id)}>
                   <b>{r.name}{r.outcome === "review" && <em>review</em>}</b>
-                  {r.detail && <span>{r.detail}</span>}
+                  {/* PROOF, like Strengths (owner 2026-11-12): the values compared, then the reason; a reason the
+                      agent drew itself (not plain text) is kept as it is */}
+                  {(() => {
+                    const { proof, why } = concernProof(r);
+                    return (<>
+                      {proof && <span className="cu-r-proof">{proof}</span>}
+                      {why ? <span>{why}</span> : (!proof && r.detail ? <span>{r.detail}</span> : null)}
+                    </>);
+                  })()}
                 </button>
               </li>
             ))}
@@ -174,21 +182,75 @@ function Concerns({ items, onRule }: { items: RuleRow[]; onRule?: (id: string) =
   );
 }
 
-const CHIPS_SHOWN = 8;
+const ROUTINE = new Set(ROUTINE_DETAIL);
+const flat = (v: ReactNode) => (typeof v === "string" || typeof v === "number" ? String(v).trim() : "");
+
+/** The proof of a passed rule, in one line: the two values it compared ("Actual 42% · Policy limit 60%"), else its
+ *  reason line when that says more than "passed", else the first value with a number in it. "" = no proof. */
+export function strengthProof(r: RuleRow): string {
+  const pair = comparePair(r.values);
+  if (pair && flat(pair[0].value) && flat(pair[1].value)) {
+    return pair.map((v) => `${COMPARE_WORDS[v.label] ?? v.label} ${flat(v.value)}`).join(" · ");
+  }
+  const detail = flat(r.detail);
+  const key = detail.toLowerCase().replace(/[.!]+$/, "");
+  if (detail && !ROUTINE.has(key) && key !== r.name.trim().toLowerCase()) return detail;
+  const fact = (r.values || []).find((v) => /\d/.test(flat(v.value)));
+  return fact ? `${fact.label}: ${flat(fact.value)}` : "";
+}
+
+/** The proof of a concern: the values compared ("Actual 72% · Policy limit 60%", else the first value with a number)
+ *  and, under it, the reason when it says more than the rule name. */
+export function concernProof(r: RuleRow): { proof: string; why: string } {
+  const pair = comparePair(r.values);
+  let proof = pair && flat(pair[0].value) && flat(pair[1].value)
+    ? pair.map((v) => `${COMPARE_WORDS[v.label] ?? v.label} ${flat(v.value)}`).join(" · ") : "";
+  if (!proof) {
+    const fact = (r.values || []).find((v) => /\d/.test(flat(v.value)));
+    proof = fact ? `${fact.label}: ${flat(fact.value)}` : "";
+  }
+  const detail = flat(r.detail);
+  const key = detail.toLowerCase().replace(/[.!]+$/, "");
+  const why = detail && !ROUTINE.has(key) && key !== r.name.trim().toLowerCase() ? detail : "";
+  return { proof, why };
+}
+
+/** Strengths worth reading: passes with proof, the ones with numbers first; the rest only counted. */
+export function usefulStrengths(passed: RuleRow[]): { listed: { rule: RuleRow; proof: string }[]; rest: RuleRow[] } {
+  const withProof = passed.map((rule) => ({ rule, proof: strengthProof(rule) })).filter((s) => s.proof);
+  withProof.sort((a, b) => Number(/\d/.test(b.proof)) - Number(/\d/.test(a.proof)));      // stable: rule order kept
+  const listed = withProof.slice(0, STRENGTHS_SHOWN);
+  const ids = new Set(listed.map((s) => s.rule.id));
+  return { listed, rest: passed.filter((r) => !ids.has(r.id)) };
+}
+
 function Strengths({ items, onRule }: { items: RuleRow[]; onRule?: (id: string) => void }) {
   const [all, setAll] = useState(false);
-  const shown = all ? items : items.slice(0, CHIPS_SHOWN);
+  const { listed, rest } = useMemo(() => usefulStrengths(items), [items]);
   return (
-    <div className="cu-r-side is-pass" role="group" aria-label="Checks passed">
-      <div className="cu-r-side-title"><Icon name="check" />Checks passed<span>{items.length}</span></div>
-      {items.length === 0
-        ? <div className="cu-r-side-empty">Nothing passed yet.</div>
-        : <ul className="cu-r-chips">{shown.map((r) => (
-          <li key={`${r.id}|${r.name}`}><button type="button" className="cu-r-chip-btn" disabled={!onRule} onClick={() => onRule?.(r.id)}
-            title={typeof r.detail === "string" ? r.detail : r.name}><Icon name="check" />{r.name}</button></li>))}</ul>}
-      {items.length > CHIPS_SHOWN && (
+    <div className="cu-r-side is-pass" role="group" aria-label="Strengths">
+      <div className="cu-r-side-title"><Icon name="check" />Strengths<span>{items.length}</span></div>
+      {items.length === 0 && <div className="cu-r-side-empty">Nothing passed yet.</div>}
+      {listed.length > 0 && (
+        <ul className="cu-r-concerns cu-r-strengths">
+          {listed.map(({ rule, proof }) => (
+            <li key={rule.id} className="is-pass">
+              <button type="button" className="cu-r-side-btn" disabled={!onRule} onClick={() => onRule?.(rule.id)}>
+                <b>{rule.name}</b>
+                <span>{proof}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {rest.length > 0 && (listed.length === 0 || all) && (
+        <ul className="cu-r-chips">{rest.map((r) => (
+          <li key={r.id}><button type="button" className="cu-r-chip-btn" disabled={!onRule} onClick={() => onRule?.(r.id)}
+            title={r.name}><Icon name="check" />{r.name}</button></li>))}</ul>
+      )}
+      {rest.length > 0 && listed.length > 0 && (
         <button type="button" className="cu-r-more" onClick={() => setAll((a) => !a)} aria-expanded={all}>
-          {all ? "Show fewer" : `+${items.length - CHIPS_SHOWN} more`}
+          {all ? "Show fewer" : MORE_PASSED(rest.length)}
         </button>
       )}
     </div>

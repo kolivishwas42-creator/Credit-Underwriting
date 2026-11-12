@@ -97,3 +97,69 @@ html:root:root[class*="agent-"] .agent-host .search-input
 
 /* ---------- a result uses the width (owner 2026-11-12: no wide empty sides after the form) ---------- */
 html:root:root[class*="agent-"] .agent-root *:has(.cu-r) { max-width: none !important; }   /* any depth */
+
+/* ---------- DROPDOWNS, the same on every agent (owner 2026-11-12) ----------
+   the original Eligibility look (44px, rounded, its own chevron, a coloured focus ring); a CHOSEN value gets a darker
+   sapphire border and a light tint so filled fields stand out; in the open list each option is its own box (Edge /
+   Chrome "customizable select", progressive: other browsers keep their native list). Fonts follow DESIGN.md. */
+html:root:root[class*="agent-"] .agent-root select:not([multiple]):not([size]) {
+  min-height: 44px; padding: 0 40px 0 12px; border: 1.5px solid #CBD5E1 !important; border-radius: 8px !important;
+  background-color: #fff; color: #64748B; font: inherit; cursor: pointer; outline: none; box-shadow: none;
+  -webkit-appearance: none; appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, #3B57D6 50%), linear-gradient(135deg, #3B57D6 50%, transparent 50%);
+  background-position: calc(100% - 20px) 52%, calc(100% - 15px) 52%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat;
+  transition: border-color .12s ease, box-shadow .12s ease, background-color .12s ease; }
+html:root:root[class*="agent-"] .agent-root select:not([multiple]):not([size]):hover:not(:disabled) { border-color: #94A3B8 !important; }
+html:root:root[class*="agent-"] .agent-root select:not([multiple]):not([size]):focus-visible,
+html:root:root[class*="agent-"] .agent-root select:not([multiple]):not([size]):focus {
+  border-color: #3B57D6 !important; box-shadow: 0 0 0 3px rgba(59, 87, 214, .18) !important; }
+/* a value is chosen (not the empty "Choose…" option): darker border, tint, the text in full colour */
+html:root:root[class*="agent-"] .agent-root select:not([multiple]):not([size]):has(option:checked:not([value=""])) {
+  border-color: #253DA3 !important; background-color: #F5F8FF; color: #0F172A; font-weight: 600; }
+html:root:root[class*="agent-"] .agent-root select:disabled { cursor: not-allowed; opacity: .7; background-color: #F1F5F9; }
+html:root:root[class*="agent-"] .agent-root select option { color: #0F172A; background: #fff; font-weight: 500; }
+html:root:root[class*="agent-"] .agent-root select option:checked { color: #253DA3; background: #EEF3FF; font-weight: 700; }
+
+/* the open list (customizable select, Edge / Chrome): the shared shell (shell.css, "a thin line between every
+   option") draws the list; here only the arrow takes the accent and turns when the list opens */
+@supports (appearance: base-select) {
+  html:root:root[class*="agent-"] .agent-root select::picker-icon { color: #3B57D6; }
+  html:root:root[class*="agent-"] .agent-root select option::checkmark { color: #253DA3; }
+}
+
+/* ---------- INK & EMBER v3.0: TYPE, RADIUS, ELEVATION on every agent (owner 2026-11-12) ----------
+   "colour jaisa hai waisa hi; only the font and baki sab": colours are NOT touched here. DESIGN.md §4 (type), §6
+   (radius), §7 (elevation). Sizes stay as each screen set them (the 22px agent title stays); what changes is which face
+   a heading uses, its weight and tracking, the corners, and resting shadows. */
+
+/* §4.2 heading weight + tracking (Space Grotesk sets tight) */
+html:root:root[class*="agent-"] .agent-host h1 { font-weight: 700; letter-spacing: -.03em; }
+html:root:root[class*="agent-"] .agent-host h2 { font-weight: 700; letter-spacing: -.02em; }
+html:root:root[class*="agent-"] .agent-host :is(h3, h4) { font-weight: 600; letter-spacing: -.015em; }
+
+/* §4.4 "Never set Space Grotesk below 18px except the uppercase eyebrow": these headings are drawn under 18px (a list
+   or card label, not a title), so they take Lexend at 600 -- the size each screen chose is kept */
+html:root:root.agent-bank_verification .agent-host :is(h2, .popup-head h2),
+html:root:root.agent-collateral_verification .agent-host .evidence-item h3,
+html:root:root.agent-crime_verification .agent-host
+  :is(h2, h3):not(.case-head-text h2):not(.modal-head h2):not(.ai-top .ai-titles h2):not(.form-section-title),
+html:root:root.agent-dedupe .agent-host :is(h2, .state-box h3, .das-head h3, .copilot-head h2, .mt h4),
+html:root:root.agent-docs_policy .agent-host .memo-head h3,
+html:root:root.agent-legal_verification .agent-host .case-strip h1 {
+  font-family: var(--font); font-weight: 600; letter-spacing: -.006em; }
+
+/* §4.2 eyebrow: uppercase kickers open up to +0.09em */
+html:root:root[class*="agent-"] .agent-host :is(.eyebrow, .section-title, .hero-kicker, .drawer-kicker) { letter-spacing: .09em; }
+
+/* §4.4 numbers that line up in columns */
+html:root:root[class*="agent-"] .agent-host :is(td, th, .num, .amount, .money, .figure, .stat-value, .kpi-value) {
+  font-variant-numeric: tabular-nums; }
+
+/* §6 radius: buttons 8px, chips / badges / tags 6px (pill only for dots, meters, avatars, toggles) */
+html:root:root[class*="agent-"]:not(.agent-legal_verification) .agent-host :is(.btn, button.btn, .button) { border-radius: 8px; }
+html:root:root[class*="agent-"]:not(.agent-legal_verification) .agent-host :is(.chip, .chip-s, .badge, .tag, .pill) { border-radius: 6px; }
+
+/* §7 borders before shadows: a resting card is border only, a light lift on hover; floating things keep theirs */
+html:root:root[class*="agent-"]:not(.agent-legal_verification) .agent-host :is(.card, .panel) { box-shadow: none; }
+html:root:root[class*="agent-"]:not(.agent-legal_verification) .agent-host :is(a.card, button.card, .card.clickable):hover {
+  box-shadow: 0 1px 3px rgba(16, 24, 40, .06); }

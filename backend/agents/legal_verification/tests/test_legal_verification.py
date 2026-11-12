@@ -453,7 +453,7 @@ def test_every_text_key_the_screen_uses_is_in_the_config():
     from agents.legal_verification.config import words
 
     screen = words("screen")
-    src = Path(__file__).resolve().parents[4] / "frontend" / "legal_verification" / "src"   # frontend/ beside backend/
+    src = Path(__file__).resolve().parents[4] / "frontend" / "src" / "agents" / "legal_verification"   # the console: frontend/src/agents/<agent>
     keys = set()
     for f in [*src.rglob("*.tsx"), *src.rglob("*.ts")]:
         if "test" not in f.parts:

@@ -20,3 +20,7 @@ dist/
 *.zip
 .vscode/
 .idea/
+
+# local run logs (dev.ps1)
+backend/dev-backend.log*
+backend/dev-los.log*
