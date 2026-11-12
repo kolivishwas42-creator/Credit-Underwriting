@@ -71,7 +71,55 @@ $losCandidates += @(
     (Join-Path $env:USERPROFILE "Downloads\los-agentic-ai-optimised\V21\gz\LOS-agentic-ai")
 )
 $losPython = $null
+$losRepoUrl = "https://github.com/rishabh1263/LOS-agent-anii-handover.git"
+$losBranch = "dev/rishabh-nov12"
+$losClone = Join-Path (Split-Path -Parent $root) "LOS-agent-anii-handover"
+
+function Find-Python {
+    foreach ($try in @(@("py", "-3.12"), @("py", "-3.11"), @("python"))) {
+        try { & $try[0] @($try[1..9] + @("--version")) *> $null; if ($LASTEXITCODE -eq 0) { return , $try } } catch { }
+    }
+    throw "Python 3.12 is not installed: install it from python.org (tick 'Add to PATH'), then run dev again."
+}
+
 if (-not $NoLos) {
+    # FIRST RUN ON A NEW LAPTOP (owner 2026-11-12: "pen drive nahi hai"): the LOS server sets itself up --
+    # cloned next to this folder, its own .venv with its packages, and its .env made from its .env.example plus the
+    # database / dev-mode lines of this backend's .env (the same database). Each step only when that piece is missing.
+    $haveLos = $false
+    foreach ($dir in $losCandidates) { if (Test-Path (Join-Path $dir "main.py")) { $haveLos = $true; break } }
+    if (-not $haveLos -and -not $LosDir) {
+        if (Get-Command git -ErrorAction SilentlyContinue) {
+            Write-Host "first run: getting the LOS server (git clone, a minute)..." -ForegroundColor Yellow
+            & git clone -b $losBranch $losRepoUrl $losClone
+            if ($LASTEXITCODE -ne 0) { Write-Host "could not clone the LOS repo (no GitHub access?) - continuing without it." -ForegroundColor Yellow }
+        } else {
+            Write-Host "git is not installed - continuing without the LOS server." -ForegroundColor Yellow
+        }
+    }
+    $losHere = Join-Path $losClone "LOS-agentic-ai"
+    if ((Test-Path (Join-Path $losHere "main.py")) -and -not (Test-Path (Join-Path $losHere ".venv\Scripts\python.exe"))) {
+        Write-Host "first run: creating the LOS server's .venv and installing its packages (10-15 minutes, only once)..." -ForegroundColor Yellow
+        $py = Find-Python
+        & $py[0] @($py[1..9] + @("-m", "venv", (Join-Path $losHere ".venv")))
+        & (Join-Path $losHere ".venv\Scripts\python.exe") -m pip install --upgrade pip
+        & (Join-Path $losHere ".venv\Scripts\python.exe") -m pip install -r (Join-Path $losHere "requirements.txt")
+        if ($LASTEXITCODE -ne 0) { Write-Host "the LOS server's packages did not install - see above; continuing without it." -ForegroundColor Yellow }
+    }
+    if ((Test-Path (Join-Path $losHere "main.py")) -and -not (Test-Path (Join-Path $losHere ".env")) -and (Test-Path (Join-Path $losHere ".env.example"))) {
+        Write-Host "first run: writing the LOS server's .env (from its .env.example + this backend's database settings)" -ForegroundColor Yellow
+        $copy = @("LOS_AGENTIC_DSN", "LOS_STORE_DSN", "AGENT_DB_ADMIN_DSN", "ENVIRONMENT", "AUTH_ENABLED")
+        $mine = @{}
+        foreach ($line in Get-Content (Join-Path $backend ".env")) {
+            if ($line -match '^\s*([A-Z][A-Z0-9_]*)\s*=(.*)$' -and $copy -contains $Matches[1]) { $mine[$Matches[1]] = $line.Trim() }
+        }
+        $out = foreach ($line in Get-Content (Join-Path $losHere ".env.example")) {
+            if ($line -match '^\s*([A-Z][A-Z0-9_]*)\s*=' -and $mine.ContainsKey($Matches[1])) { $mine[$Matches[1]]; $mine.Remove($Matches[1]) } else { $line }
+        }
+        $out += $mine.Values
+        Set-Content -Path (Join-Path $losHere ".env") -Value $out -Encoding UTF8
+    }
+
     foreach ($dir in $losCandidates) {
         if (-not (Test-Path (Join-Path $dir "main.py"))) { continue }
         foreach ($venv in @(".venv", "..\.venv", "..\..\..\.venv")) {
