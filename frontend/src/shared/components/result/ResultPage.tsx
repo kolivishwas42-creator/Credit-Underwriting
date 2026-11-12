@@ -263,7 +263,16 @@ const words = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9
 /** The rule an AI point talks about: its id named in the point, else most of the rule name's words in the point. */
 export function ruleOfPoint(point: string, rules: RuleRow[]): RuleRow | undefined {
   const text = ` ${point.toLowerCase()} `;
-  const byId = rules.find((r) => r.id.length >= 2 && new RegExp(`[^a-z0-9]${r.id.toLowerCase().replace(/[^a-z0-9]/g, "\\$&")}[^a-z0-9]`).test(text));
+  // the rule's WHOLE name in the point, the longest first (owner 2026-11-12 UI pass: "Co-Applicant 1 has low risk"
+  // linked to "Applicant" -- short words are dropped below, so both names looked like "applicant")
+  const whole = (s: string) => ` ${s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
+  const said = whole(point);
+  const byName = [...rules].filter((r) => r.name.trim().length >= 3).sort((a, b) => b.name.length - a.name.length)
+    .find((r) => said.includes(whole(r.name)));
+  if (byName) return byName;
+  // its id named in the point -- after the whole names, and never inside a hyphenated word: an id like "APPLICANT"
+  // is also inside "co-applicant"
+  const byId = rules.find((r) => r.id.length >= 2 && new RegExp(`[^a-z0-9-]${r.id.toLowerCase().replace(/[^a-z0-9]/g, "\\$&")}[^a-z0-9-]`).test(text));
   if (byId) return byId;
   const have = new Set(words(point));
   let best: { rule: RuleRow; score: number; hits: number } | undefined;
@@ -318,7 +327,8 @@ export function keyNumbers(calcs: CalcRow[]): CalcRow[] {
   return out.slice(0, KEY_NUMBERS_MAX);
 }
 
-export function AiSummary({ points, source, loading, empty = "No summary yet.", rules = [], onRule, numbers = [] }:
+export function AiSummary({ points, source, loading, empty = "No summary yet.", rules = [], onRule, numbers = [], glance = [],
+  glanceTitle = "At a glance" }:
   SummaryProps & { rules?: RuleRow[]; onRule?: (id: string) => void; numbers?: CalcRow[] }) {
   const [all, setAll] = useState(false);
   // our own numbers lead each point: drop a "1." / "2)" the writer put in the text
@@ -368,6 +378,22 @@ export function AiSummary({ points, source, loading, empty = "No summary yet.", 
               : <div className="cu-r-empty">{empty}</div>}
         </div>
       </div>
+      {/* AT A GLANCE (owner 2026-11-12): every person and their level, right under the summary -- colour AND word */}
+      {glance.length > 0 && (
+        <div className="cu-r-glance" role="group" aria-label={glanceTitle}>
+          <span className="cu-r-glance-title">{glanceTitle}</span>
+          <ul>
+            {glance.map((g) => (
+              <li key={g.id} className={`cu-r-glance-chip is-${g.tone}`}>
+                <i aria-hidden="true" />
+                <span className="cu-r-glance-who">{g.who}</span>
+                <span className="cu-r-glance-name">{g.name}</span>
+                <b>{g.level}</b>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {numbers.length > 0 && (
         <dl className="cu-r-keynums" aria-label="Key numbers">
           {numbers.map((n, i) => (
@@ -769,7 +795,7 @@ function SectionRail({ tabs, active, onPick, stuck, basic, onTop }: {
   );
 }
 
-export function ResultPage({ basic, summary, rules, calculations, actions, children, detailsOpen }: ResultPageProps) {
+export function ResultPage({ basic, summary, rules, calculations, actions, children, detailsOpen, overview }: ResultPageProps) {
   const ruleRows = rules?.rules ?? [];
   const calcRows = withOverflow(calculations?.rows ?? [], basic, ruleRows.length > 0);
   const hasCalcs = calcRows.length > 0;
@@ -825,6 +851,8 @@ export function ResultPage({ basic, summary, rules, calculations, actions, child
       {summary && (
         <div className={pane("overview")} {...paneProps("overview")}>
           <AiSummary {...summary} rules={ruleRows} onRule={onRule} numbers={keyNumbers(calcRows)} />
+          {/* the agent's own picture right under the summary (owner 2026-11-12: Crime's risk gauges) */}
+          {hasChildren(overview) && <div className="cu-r-overview-extra cu-r-agent">{overview}</div>}
         </div>
       )}
       {(rules || hasCalcs) && (
@@ -838,11 +866,11 @@ export function ResultPage({ basic, summary, rules, calculations, actions, child
       {extra && !detailsOpen && (
         <div className={pane("details")} {...paneProps("details")}>
           <div className="cu-r-card cu-r-details is-open" role="region" aria-label="More details">
-            <div className="cu-r-details-body">{children}</div>
+            <div className="cu-r-details-body cu-r-agent">{children}</div>
           </div>
         </div>
       )}
-      {extra && detailsOpen && <div className="cu-r-pane is-always">{children}</div>}
+      {extra && detailsOpen && <div className="cu-r-pane is-always cu-r-agent">{children}</div>}
       {actions && <ActionBar actions={actions} />}
     </div>
   );

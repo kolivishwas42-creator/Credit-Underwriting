@@ -169,6 +169,7 @@ export function toResultPage({ kase, view, config, summary, summaryLoading = fal
       source,
       points: summaryPoints,
       loading: summaryLoading && !summaryPoints.length,
+      // the per-person risk indicator is the gauge strip under the summary (ResultsPage -> RiskOverview)
     },
     rules: {
       title: "Results by person",

@@ -380,3 +380,10 @@ input:disabled, select:disabled, textarea:disabled { color: var(--muted); cursor
 .popup-diff-cell.is-bad b { color: #B91C1C; }
 .popup-diff-note { grid-column: 1 / -1; margin: 0; color: #475569; font-size: 13px; line-height: 19px; overflow-wrap: anywhere; }
 @media (max-width: 560px) { .popup-diff { grid-template-columns: minmax(0, 1fr); } }
+
+/* the case search IN THE SIDEBAR (owner 2026-11-12 UI pass): box full width, the button under it -- side by side the
+   placeholder was cut ("Case ID or ap"); the error shows in the flow, not floating over the menu */
+.cu-frame-top .search { flex: none; max-width: none; margin: 0; width: 100%; }
+.cu-frame-top .search form { flex-direction: column; align-items: stretch; gap: 8px; }
+.cu-frame-top .search .btn { width: 100%; justify-content: center; }
+.cu-frame-top .search-error { position: static; margin-top: 8px; }

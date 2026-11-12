@@ -117,3 +117,9 @@ from agents.registry import AGENTS  # noqa: E402
 # EVERY AGENT FROM ONE LIST (agents/registry.py): a new agent is an entry there, never an edit here
 for _agent in AGENTS:
     app.include_router(_agent.router(), prefix=_agent.mount_prefix(), dependencies=[Depends(require_jwt)])
+
+# RULE SETTINGS (owner 2026-11-12): rule on / off, numbers and new rules for the agents whose rules live in the
+# versioned rule store -- shared/api/rule_settings.py, shared/config/rule_settings.yaml
+from shared.api.rule_settings import router as _rule_settings_router  # noqa: E402
+
+app.include_router(_rule_settings_router)

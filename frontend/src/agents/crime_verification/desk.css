@@ -202,3 +202,69 @@
   .decisions { flex-wrap: wrap; }
   .table-wrap, .dash-table { max-width: 100%; overflow-x: auto; }
 }
+
+/* IDs on one line (owner 2026-11-12 UI pass): "CRV-8B92D0192D" broke at its hyphen; the table scrolls if it must */
+.table td.mono, .dash-table td.mono, table td.mono { white-space: nowrap; }
+
+/* THE DECISION RECORD (owner 2026-11-12): "Result acknowledged" as a clear record -- labelled decision / by / on, and
+   the remarks in their own box (was a bare chip, a grey byline and a loose italic quote) */
+.final-record { display: flex; flex-direction: column; gap: 14px; padding: 18px 20px; border: 1px solid #E2E8F0; border-radius: 16px;
+  background: #fff; }
+.final-record .final-head { display: flex; align-items: center; gap: 10px; }
+.final-record .final-head h3 { margin: 0; font-size: 16px; line-height: 22px; font-weight: 600; color: #0F172A; }
+.final-record .final-icon { display: grid; place-items: center; flex: none; width: 32px; height: 32px; border-radius: 10px;
+  background: #DCFCE7; color: #166534; }
+.final-record .final-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 0; }
+.final-record .final-grid > div { min-width: 0; padding: 10px 12px; border-radius: 10px; background: #F8FAFC; box-shadow: inset 0 0 0 1px #EEF2F7; }
+.final-record .final-grid dt { margin: 0 0 4px; color: #64748B; font-size: 12px; font-weight: 600; }
+.final-record .final-grid dd { margin: 0; color: #0F172A; font-weight: 600; overflow-wrap: anywhere; }
+.final-record .final-remarks { margin: 0; }
+.final-record .final-remarks figcaption { margin-bottom: 6px; color: #64748B; font-size: 12px; font-weight: 600; }
+.final-record .final-remarks blockquote { margin: 0; padding: 10px 14px; border-left: 3px solid #3B57D6; border-radius: 0 10px 10px 0;
+  background: #F5F8FF; color: #1E293B; font-size: 14px; line-height: 21px; overflow-wrap: anywhere; }
+@media (max-width: 640px) { .final-record .final-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- THE RISK INDICATOR UNDER THE AI SUMMARY (owner 2026-11-12) ----------
+   one card per person: who, the gauge (level by colour, needle AND word), how many cases were found */
+.risk-overview { margin-top: 16px; padding-top: 14px; border-top: 1px dashed #E2E8F0; }
+.risk-overview-title { margin: 0 0 10px; color: #64748B; font: 700 12px/16px var(--font, inherit); letter-spacing: .06em; text-transform: uppercase; }
+.risk-overview ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); }
+.risk-overview.is-one ul { grid-template-columns: minmax(0, 360px); }
+.cu-r-agent .risk-ov-card { display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; padding: 12px 14px 14px;
+  border: 1px solid #E2E8F0; border-radius: 14px; background: #fff; }
+.cu-r-agent .risk-ov-card.tone-bad { border-color: #FECACA; background: linear-gradient(180deg, #FEF2F2, #fff 60%); }
+.cu-r-agent .risk-ov-card.tone-warn { border-color: #FDE68A; background: linear-gradient(180deg, #FFFBEB, #fff 60%); }
+.cu-r-agent .risk-ov-card.tone-ok { border-color: #BBF7D0; background: linear-gradient(180deg, #F0FDF4, #fff 60%); }
+.risk-ov-who { align-self: stretch; display: flex; flex-direction: column; min-width: 0; text-align: left; }
+.risk-ov-who .subject-role { color: #64748B; font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.risk-ov-who .subject-name { color: #0F172A; font-weight: 600; overflow-wrap: anywhere; }
+.cu-r-agent .risk-ov-card .gauge { width: min(240px, 100%); }
+.cu-r-agent .risk-ov-card .gauge-label { font-size: 18px; line-height: 24px; }
+.cu-r-agent .risk-ov-count { margin: 0; color: #475569; font-size: 13px; font-weight: 600; }
+.cu-r-agent .risk-ov-status { margin: 12px 0; padding: 4px 10px; border-radius: 6px; background: #F1F5F9; color: #475569; font-weight: 600; }
+
+/* ---------- THE PEOPLE LIST in More details (owner 2026-11-12: "iska UI proper nahi") ----------
+   filter chips with room around them; every person a clear row (bordered), the picked one outlined + tinted (not a
+   solid block next to an unboxed one); the sources table across the card */
+.people-filter { display: flex; gap: 8px; padding: 12px 14px 4px; }
+.people-filter .chip-btn { border-radius: 8px; padding: 6px 12px; font-weight: 600; }
+.people-rows { gap: 8px; padding: 10px 14px 14px; }
+.people-row { border: 1px solid #E2E8F0; border-radius: 12px; padding: 10px 12px; background: #fff; }
+.people-row:hover { background: #F8FAFC; border-color: #CBD5E1; }
+.people-row.is-on { background: #F5F8FF; border-color: #3B57D6; box-shadow: inset 3px 0 0 #3B57D6; }
+.people-row-text .subject-role { font-size: 11px; letter-spacing: .04em; }
+.people-row-text .subject-name { font-size: 14px; font-weight: 600; }
+.people-risk { padding: 4px 8px; border-radius: 8px; }
+/* the sources table across the card (a block rule made it shrink to its content); a phone keeps the scrolling block */
+@media (min-width: 641px) { .people-detail .result .table { display: table; width: 100%; } }
+
+/* the indicator sits in its own card under the AI summary, the level word centred under the needle */
+.cu-r-overview-extra { margin-top: 16px; padding: 16px 18px 18px; border: 1px solid #E2E8F0; border-radius: 16px; background: #fff; }
+.cu-r-overview-extra .risk-overview { margin-top: 0; padding-top: 0; border-top: 0; }
+.risk-ov-card .gauge { display: flex; flex-direction: column; align-items: center; }
+.risk-ov-card .gauge-label { text-align: center; }
+/* "+N more" under the gauges (any number of co-applicants) */
+.risk-ov-more { display: inline-flex; align-items: center; margin-top: 12px; height: 34px; padding: 0 14px; border: 1px solid #E2E8F0;
+  border-radius: 8px; background: #fff; color: #253DA3; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.risk-ov-more:hover { border-color: #B8C8FF; background: #F5F8FF; }

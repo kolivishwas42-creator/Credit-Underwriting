@@ -315,9 +315,13 @@ def _assess(case_row, current, candidates, others, policy, truncated, failed, re
         # NEVER A CLEAN RESULT BY OMISSION: any rule not evaluated (an unconfigured business window, a source the LOS
         # lacks, a failed read) makes the assessment incomplete, and says which and why
         "completeness": {
-            "complete": not any(r["outcome"] in (NOT_EVALUATED, FAILED) for r in rules) and not partial,
+            # a rule SWITCHED OFF in the rule settings (reason DISABLED, owner 2026-11-12) was not forgotten: it does
+            # not make the result incomplete; it is listed under "switched_off" instead
+            "complete": not any(r["outcome"] in (NOT_EVALUATED, FAILED) and r.get("reason") != "DISABLED" for r in rules)
+                        and not partial,
             "not_evaluated": [{"rule_id": r["rule_id"], "reason": r["reason"]} for r in rules
-                              if r["outcome"] in (NOT_EVALUATED, FAILED)],
+                              if r["outcome"] in (NOT_EVALUATED, FAILED) and r.get("reason") != "DISABLED"],
+            "switched_off": [r["rule_id"] for r in rules if r.get("reason") == "DISABLED"],
             "note": "NO_MATCH covers only the rules evaluated and the LOS case store searched; it is not a clean "
                     "dedupe result while any rule is not evaluated.",
         },
