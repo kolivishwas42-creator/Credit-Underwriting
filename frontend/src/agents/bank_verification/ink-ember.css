@@ -19,8 +19,8 @@
   --shadow: none; --e-sm: 0 1px 3px rgba(24, 24, 27, .06); --e-lg: 0 12px 32px rgba(24, 24, 27, .16);
   --scrim: rgba(24, 24, 27, .5);
   --radius: 16px;
-  --font-display: "Space Grotesk", "Inter", -apple-system, "Segoe UI", sans-serif;
-  --font: "Lexend", "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: var(--font-display);
+  --font: var(--font-body);
   --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
   color-scheme: light dark;
 }

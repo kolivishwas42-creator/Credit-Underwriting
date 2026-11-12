@@ -1,7 +1,8 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AGENTS, GROUPS } from "../../config/agents";
 import { useBackendStatus, type BackendStatus } from "../hooks/useBackendStatus";
-import { applyTheme, nextTheme, savedTheme, type ThemeChoice } from "../theme";
+// theme button commented out for every agent (owner 2026-11-12): the theme helpers stay in ../theme
+// import { applyTheme, nextTheme, savedTheme, type ThemeChoice } from "../theme";
 import { Icon } from "./Icon";
 import { Logo } from "./Logo";
 
@@ -11,8 +12,8 @@ interface Props {
   onSearch: () => void;
 }
 
-const THEME_LABEL: Record<ThemeChoice, string> = { system: "System theme", light: "Light theme", dark: "Dark theme" };
-const THEME_ICON: Record<ThemeChoice, string> = { system: "monitor", light: "sun", dark: "moon" };
+// const THEME_LABEL: Record<ThemeChoice, string> = { system: "System theme", light: "Light theme", dark: "Dark theme" };
+// const THEME_ICON: Record<ThemeChoice, string> = { system: "monitor", light: "sun", dark: "moon" };
 const STATUS_LABEL: Record<BackendStatus, string> = {
   checking: "Checking…", online: "Backend connected", offline: "Backend offline",
 };
@@ -25,7 +26,7 @@ const STEP = 280;
  * sideways with ‹ › when it does not fit; the open tab is always scrolled into view.
  */
 export function TopNav({ active, onOpen, onSearch }: Props) {
-  const [theme, setTheme] = useState<ThemeChoice>(savedTheme);
+  // const [theme, setTheme] = useState<ThemeChoice>(savedTheme);
   const status = useBackendStatus();
   const row = useRef<HTMLDivElement>(null);
   const [edge, setEdge] = useState({ left: false, right: false });
@@ -52,7 +53,7 @@ export function TopNav({ active, onOpen, onSearch }: Props) {
   }, [active, measure]);
 
   const scroll = (dir: number) => row.current?.scrollBy({ left: dir * STEP, behavior: "smooth" });
-  const cycleTheme = () => { const t = nextTheme(theme); applyTheme(t); setTheme(t); };
+  // const cycleTheme = () => { const t = nextTheme(theme); applyTheme(t); setTheme(t); };
 
   return (
     <div className="cu-top" role="banner">
@@ -68,10 +69,12 @@ export function TopNav({ active, onOpen, onSearch }: Props) {
           <span className={`cu-status is-${status}`} role="status" title={STATUS_LABEL[status]}>
             <i aria-hidden="true" /><span>{STATUS_LABEL[status]}</span>
           </span>
+          {/* theme button (system / light / dark) commented out
           <button type="button" className="cu-icon-btn" onClick={cycleTheme} title={THEME_LABEL[theme]}
             aria-label={THEME_LABEL[theme]}>
             <Icon name={THEME_ICON[theme]} />
           </button>
+          */}
         </div>
       </div>
 

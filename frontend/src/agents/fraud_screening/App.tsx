@@ -8,12 +8,6 @@ import type { Evaluation, RuleConfig } from "./types";
 import { toResultPage } from "./utils/resultView";
 import { screenCount } from "./utils/screening";
 
-type Tab = "aml" | "pep" | "config" | "raw";
-
-function Count({ n }: { n: number }) {
-  return <span className={"count" + (n === 0 ? " zero" : "")}>{n}</span>;
-}
-
 /** Loan Fraud Check: evaluate an application (rules + AML + PEP), read the results, switch rules on and off. */
 export default function App() {
   const [appNum, setAppNum] = useState("");
@@ -25,7 +19,6 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<Evaluation | null>(null);
   const [run, setRun] = useState(0);              // a new evaluation collapses the lower-scoring records again
-  const [tab, setTab] = useState<Tab>("aml");
   const [rules, setRules] = useState<RuleConfig[]>([]);
   const [pending, setPending] = useState<Set<string>>(new Set());
 
@@ -70,13 +63,6 @@ export default function App() {
     }
   }
 
-  const tabs: { id: Tab; label: string; count?: number }[] = [
-    { id: "aml", label: "AML screening", count: screenCount(data?.aml) },
-    { id: "pep", label: "PEP check", count: screenCount(data?.pep) },
-    { id: "config", label: "Rule configuration" },
-    { id: "raw", label: "Raw JSON" },
-  ];
-
   const screen = useResultScreen(data);
   return (
     <AgentFrame agent="fraud_screening" caseLabel={data ? appNum : undefined} items={[
@@ -105,30 +91,15 @@ export default function App() {
       {data && screen.onResult && <BackToForm onBack={screen.back} note={appNum} />}
       {data && screen.onResult && (
         <div id="resultArea">
-          {/* the common result layout; AML / PEP records, rule switches and the raw answer stay as tabs under it */}
-          <ResultPage {...toResultPage(data)}>
-            <div className="fs-extras">
-              <div className="tabs" role="tablist">
-                {tabs.map((t) => (
-                  <button key={t.id} role="tab" aria-selected={tab === t.id} className={"tab-btn" + (tab === t.id ? " active" : "")}
-                          onClick={() => setTab(t.id)}>
-                    {t.label}{t.count !== undefined && <> <Count n={t.count} /></>}
-                  </button>
-                ))}
-              </div>
-
-              {/* every pane stays mounted (hidden when not chosen), so an expanded list survives a tab switch */}
-              <div className={"tab-pane" + (tab === "aml" ? "" : " hidden")} id="tab-aml"><ScreenTab key={run} kind="aml" data={data.aml} /></div>
-              <div className={"tab-pane" + (tab === "pep" ? "" : " hidden")} id="tab-pep"><ScreenTab key={run} kind="pep" data={data.pep} /></div>
-              <div className={tab === "config" ? "" : "hidden"}>
-                <RuleConfigTable rules={rules} pending={pending} onToggle={toggle} />
-              </div>
-              <div className={"card tab-pane" + (tab === "raw" ? "" : " hidden")} id="tab-raw">
-                <h2>Raw response</h2>
-                <pre>{JSON.stringify(data, null, 2)}</pre>
-              </div>
-            </div>
-          </ResultPage>
+          {/* the common result layout; AML / PEP records, rule switches and the raw answer are tabs in its rail */}
+          <ResultPage {...toResultPage(data)} extraTabs={[
+            { id: "aml", label: "AML screening", icon: "shield", count: screenCount(data.aml),
+              content: <div className="fs-extras" id="tab-aml"><ScreenTab key={run} kind="aml" data={data.aml} /></div> },
+            { id: "pep", label: "PEP check", icon: "flag", count: screenCount(data.pep),
+              content: <div className="fs-extras" id="tab-pep"><ScreenTab key={run} kind="pep" data={data.pep} /></div> },
+            { id: "config", label: "Rule configuration", icon: "key",
+              content: <div className="fs-extras"><RuleConfigTable rules={rules} pending={pending} onToggle={toggle} /></div> },
+          ]} />
         </div>
       )}
     </div>

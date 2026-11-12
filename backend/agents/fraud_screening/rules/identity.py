@@ -39,8 +39,10 @@ def pan_issue(pan) -> str:
     s = str(pan).strip().upper().replace(" ", "")
     if not s or is_masked_id(s):
         return ""
+    if len(s) != 10:
+        return f"PAN '{s}' has {len(s)} characters; a PAN has 10"
     if not _PAN_RE.match(s):
-        return f"PAN '{s}' does not match AAAAA9999A"
+        return f"PAN '{s}' is the wrong type: it must be 5 letters, 4 digits, then 1 letter (like ABCDE1234F)"
     return ""
 
 
@@ -51,10 +53,12 @@ def aadhaar_issue(aadhaar) -> str:
     s = re.sub(r"[\s-]", "", str(aadhaar).strip())
     if not s or is_masked_id(s):
         return ""
-    if not _AADHAAR_RE.match(s):
-        return f"Aadhaar '{s}' is not 12 digits"
+    if not s.isdigit():
+        return f"Aadhaar '{s}' must have digits only"
+    if len(s) != 12:
+        return f"Aadhaar '{s}' has {len(s)} digits; it must have 12"
     if not verhoeff_validate(s):
-        return f"Aadhaar '{s}' fails Verhoeff checksum"
+        return f"Aadhaar '{s}' is not a valid number (check for a typing mistake)"
     return ""
 
 
@@ -270,9 +274,8 @@ def dual_identity_conflicts(input_aadhaar, input_pan, input_name, identity_index
             hist_name = entry.get("name") or ""
             if hist_name and not names_match(nm, hist_name, name_threshold):
                 msgs.append(
-                    f"{label} matches prior application_id={entry.get('application_id')} "
-                    f"customer_id={entry.get('customer_id')} name='{hist_name}' "
-                    f"(current name='{nm}')"
+                    f"{label} was used before under a different name: application {entry.get('application_id')}, "
+                    f"customer {entry.get('customer_id')}, name '{hist_name}' (this application: '{nm}')"
                 )
     return msgs
 
@@ -295,8 +298,8 @@ def find_duplicate_identity(customer_id, aadhaar, pan, name, dob, index: dict, c
             if customer_id is not None and str(e.get("customer_id")) == str(customer_id):
                 continue
             msgs.append(
-                f"{label} already used by customer_id={e.get('customer_id')} "
-                f"application_id={e.get('application_id')} name='{e.get('name')}'"
+                f"{label} is already used by customer {e.get('customer_id')} in application "
+                f"{e.get('application_id')} (name '{e.get('name')}')"
             )
     if nm and d is not None:
         for e in index.get("name_dob", {}).get(f"{nm}|{d.isoformat()}", []):
@@ -304,9 +307,8 @@ def find_duplicate_identity(customer_id, aadhaar, pan, name, dob, index: dict, c
                 continue
             if (aad and e.get("aadhaar") and e["aadhaar"] != aad) or (p and e.get("pan") and e["pan"] != p):
                 msgs.append(
-                    f"Same name+DOB with different ID: customer_id={e.get('customer_id')} "
-                    f"application_id={e.get('application_id')} "
-                    f"prior_aadhaar={e.get('aadhaar')} prior_pan={e.get('pan')}"
+                    f"Same name and date of birth but a different ID: customer {e.get('customer_id')}, application "
+                    f"{e.get('application_id')}, earlier Aadhaar {e.get('aadhaar') or 'none'}, earlier PAN {e.get('pan') or 'none'}"
                 )
     return msgs
 
@@ -322,7 +324,7 @@ def dob_consistency_conflicts(input_aadhaar, input_pan, input_dob, dob_index: di
             continue
         others = sorted((dob_index.get(key) or set()) - {target})
         if others:
-            msgs.append(f"{label}={key} current DOB={target} but history has DOB(s) {', '.join(others)}")
+            msgs.append(f"{label} {key} has date of birth {target} here, but earlier records show {', '.join(others)}")
     return msgs
 
 
@@ -340,8 +342,8 @@ def shared_bank_account_hits(input_account, current_customer_id, historical_acco
         if cid is not None and current_customer_id is not None and str(cid) == str(current_customer_id):
             continue
         hits.append(
-            f"account={acc} also on customer_id={cid} application_id={rec.get('application_id')} "
-            f"participant_id={rec.get('participant_id')}"
+            f"bank account {acc} is also used by customer {cid} in application {rec.get('application_id')} "
+            f"(participant {rec.get('participant_id')})"
         )
     return hits
 

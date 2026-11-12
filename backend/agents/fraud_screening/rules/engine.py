@@ -90,6 +90,12 @@ def person_view(block: Optional[dict]) -> dict:
     }
 
 
+def _cmp(field: str, application, other) -> dict:
+    """One side-by-side line of a rule's evidence: what this application says | what it was compared with."""
+    return {"field": field, "application": "" if application is None else str(application),
+            "other": "" if other is None else str(other)}
+
+
 class _Results:
     """Collects one row per rule (rule_results) and the skipped notes, from the rule's configuration."""
 
@@ -133,11 +139,16 @@ def _rule_params(r: _Results, key: str, policy: Policy) -> dict:
 
 def _rule1(r: _Results, key: str, person: dict, prefix: str, ok_message: str) -> None:
     msgs = [prefix + m for m in (ids.pan_issue(person.get("pan")), ids.aadhaar_issue(person.get("aadhaar"))) if m]
+    compare = []
+    if ids.pan_issue(person.get("pan")):
+        compare.append(_cmp(prefix + "PAN", person.get("pan"), "10 characters: 5 letters, 4 digits, 1 letter"))
+    if ids.aadhaar_issue(person.get("aadhaar")):
+        compare.append(_cmp(prefix + "Aadhaar", person.get("aadhaar"), "12 digits, numbers only"))
     if not person.get("pan") and not person.get("aadhaar"):
         r.skipped.append(f"Rule 1 ({'co-app' if prefix else 'primary'}): PAN and Aadhaar not provided.")
         r.emit(key, False, "Insufficient data")
     else:
-        r.emit(key, bool(msgs), "; ".join(msgs) if msgs else ok_message)
+        r.emit(key, bool(msgs), "; ".join(msgs) if msgs else ok_message, {"compare": compare} if compare else None)
 
 
 def _participant_duplicates(primary: dict, co: dict, people: List[dict], policy: Policy) -> List[str]:
@@ -213,14 +224,17 @@ def evaluate(bundle: dict, rule_config: Dict[str, dict], historical_identity: Li
     if r.is_on("Rule2_CoApp_Identity_Swap"):
         primary_pan = ids.norm_id(primary.get("pan"))
         msgs: List[str] = []
+        compare2: List[dict] = []
         checked = False
         # (a) within this application: the co-applicant carries the primary's PAN under a different name
         if co and primary_pan and co.get("pan"):
             checked = True
             if primary_pan == ids.norm_id(co["pan"]) and not ids.names_match(primary.get("name"), co.get("name"),
                                                                               policy.name_match):
-                msgs.append(f"Same PAN '{primary_pan}' used by primary name='{primary.get('name')}' "
-                            f"and co-app name='{co.get('name')}'")
+                msgs.append(f"The same PAN '{primary_pan}' is used by applicant '{primary.get('name')}' "
+                            f"and co-applicant '{co.get('name')}'")
+                compare2 += [_cmp("PAN", primary_pan, ids.norm_id(co["pan"])),
+                             _cmp("Name", primary.get("name"), co.get("name"))]
         # (b) across applications: the applicant's PAN is already registered as a co-applicant elsewhere
         if primary_pan and historical_coapplicants is not None:
             checked = True
@@ -238,7 +252,8 @@ def evaluate(bundle: dict, rule_config: Dict[str, dict], historical_identity: Li
             r.skipped.append("Rule 2: needs the applicant's PAN (and co-applicant PAN data).")
             r.emit("Rule2_CoApp_Identity_Swap", False, "Insufficient data")
         else:
-            r.emit("Rule2_CoApp_Identity_Swap", bool(msgs), "; ".join(msgs[:n]) if msgs else "OK")
+            r.emit("Rule2_CoApp_Identity_Swap", bool(msgs), "; ".join(msgs[:n]) if msgs else "OK",
+                   {"compare": compare2} if compare2 else None)
     else:
         r.emit("Rule2_CoApp_Identity_Swap", False)
 
@@ -252,6 +267,7 @@ def evaluate(bundle: dict, rule_config: Dict[str, dict], historical_identity: Li
         sim_thr = float(params["name_similarity"])
         hist_age_thr = int(params["history_age_diff_years"])
         msgs = []
+        compare4: List[dict] = []
         checked = False
         # (a) primary vs co-applicant: near-identical names but ages far apart
         if co and primary.get("name") and co.get("name"):
@@ -260,8 +276,9 @@ def evaluate(bundle: dict, rule_config: Dict[str, dict], historical_identity: Li
             age_a, age_c = primary.get("age"), co.get("age")
             age_diff = abs(int(age_a) - int(age_c)) if age_a is not None and age_c is not None else None
             if sim >= sim_thr and age_diff is not None and age_diff > age_thr:
-                msgs.append(f"Names nearly identical (similarity={sim:.2f}): primary='{primary.get('name')}' "
-                            f"co-app='{co.get('name')}'; ages {age_a} vs {age_c} (diff={age_diff} > {age_thr})")
+                msgs.append(f"Names are nearly identical (match {sim:.0%}): applicant '{primary.get('name')}' and co-applicant "
+                            f"'{co.get('name')}', but their ages are {age_a} and {age_c} ({age_diff} years apart; limit {age_thr})")
+                compare4 += [_cmp("Name", primary.get("name"), co.get("name")), _cmp("Age", age_a, age_c)]
         # (b) applicant vs earlier applications: a slightly tweaked name with a different DOB and age
         p_dob = ids.parse_dob(primary.get("dob"))
         if primary.get("name") and p_dob is not None:
@@ -279,15 +296,20 @@ def evaluate(bundle: dict, rule_config: Dict[str, dict], historical_identity: Li
                 h_age = ids.calculate_age(h_dob)
                 if p_age is None or h_age is None or abs(p_age - h_age) < hist_age_thr:
                     continue
-                hits.append(f"name '{primary['name']}' ~ '{h_name}' (similarity={sim:.2f}) with DOB "
-                            f"{p_dob.isoformat()} (age {p_age}) vs {h_dob.isoformat()} (age {h_age}), "
-                            f"application={h.get('application_number') or h.get('application_id')}")
+                hits.append(f"Name '{primary['name']}' is close to '{h_name}' (match {sim:.0%}), with date of birth "
+                            f"{p_dob.isoformat()} (age {p_age}) here and {h_dob.isoformat()} (age {h_age}) in application "
+                            f"{h.get('application_number') or h.get('application_id')}")
+                if len(hits) <= n:
+                    ref4 = h.get("application_number") or h.get("application_id")
+                    compare4 += [_cmp("Name", primary["name"], f"{h_name} (application {ref4})"),
+                                 _cmp("Date of birth", f"{p_dob.isoformat()} (age {p_age})", f"{h_dob.isoformat()} (age {h_age})")]
             msgs.extend(hits[:n])
         if not checked:
             r.skipped.append("Rule 4: needs applicant name + DOB (or a co-applicant name) to compare.")
             r.emit("Rule4_Name_Age_Tweak", False, "Insufficient data")
         else:
-            r.emit("Rule4_Name_Age_Tweak", bool(msgs), "; ".join(msgs[:n]) if msgs else "OK")
+            r.emit("Rule4_Name_Age_Tweak", bool(msgs), "; ".join(msgs[:n]) if msgs else "OK",
+                   {"compare": compare4} if compare4 else None)
     else:
         r.emit("Rule4_Name_Age_Tweak", False)
 
@@ -318,12 +340,11 @@ def evaluate(bundle: dict, rule_config: Dict[str, dict], historical_identity: Li
                     seen.add(ref)
                     hist_name = e.get("name") or ""
                     if nm and hist_name and not ids.names_match(nm, hist_name, policy.name_match):
-                        conflicts.append(f"{label} already has a record in application {ref} "
-                                         f"(customer_id={e.get('customer_id')}) under a different name "
-                                         f"'{hist_name}' (current name='{nm}')")
+                        conflicts.append(f"{label} already has a record in application {ref} (customer {e.get('customer_id')}) "
+                                         f"under a different name '{hist_name}' (this application: '{nm}')")
                     else:
                         conflicts.append(f"{label} already has a record in application {ref} "
-                                         f"(customer_id={e.get('customer_id')}, name='{hist_name}')")
+                                         f"(customer {e.get('customer_id')}, name '{hist_name}')")
             r.emit("Rule5_Dual_Identity_Mismatch", bool(conflicts), "; ".join(conflicts[:n]) if conflicts else "OK")
     else:
         r.emit("Rule5_Dual_Identity_Mismatch", False)
@@ -352,6 +373,7 @@ def evaluate(bundle: dict, rule_config: Dict[str, dict], historical_identity: Li
             for acct, ifsc in primary.get("bank_details") or []:
                 primary_banks.setdefault(acct, set()).add(ifsc)
             hits = []
+            compare6: List[dict] = []
             for other in co_apps:
                 for acct, ifsc in other.get("bank_details") or []:
                     p_ifscs = primary_banks.get(acct)
@@ -361,9 +383,13 @@ def evaluate(bundle: dict, rule_config: Dict[str, dict], historical_identity: Li
                         continue                   # the same number at a different bank is not the same account
                     hits.append(f"co-applicant bank account ending {acct[-4:]}"
                                 f"{' (IFSC ' + ifsc + ')' if ifsc else ''} is the same as the applicant's account")
+                    compare6.append(_cmp("Bank account ending", acct[-4:], acct[-4:]))
+                    if ifsc:
+                        compare6.append(_cmp("IFSC", ", ".join(sorted(x for x in p_ifscs if x)) or "-", ifsc))
             for a in accts:
                 hits.extend(ids.shared_bank_account_hits(a, co.get("customer_id"), historical_banks))
-            r.emit("Rule6_CoApp_Shared_Bank_Account", bool(hits), "; ".join(hits[:n]) if hits else "OK")
+            r.emit("Rule6_CoApp_Shared_Bank_Account", bool(hits), "; ".join(hits[:n]) if hits else "OK",
+                   {"compare": compare6} if compare6 else None)
     else:
         r.emit("Rule6_CoApp_Shared_Bank_Account", False)
 
@@ -381,11 +407,15 @@ def evaluate(bundle: dict, rule_config: Dict[str, dict], historical_identity: Li
             r.skipped.append("Rule 9 (age/DOB): age or DOB missing.")
             r.emit("Rule9_Age_DOB_Mismatch", False, "Insufficient data")
         else:
-            msgs9 = [f"{label}: stated age={person['age']} but DOB={person['dob']} "
-                     f"implies age={ids.calculate_age(person['dob'])}"
+            compare9 = [_cmp(f"{label} age", f"Stated: {person['age']}", f"From DOB {person['dob']}: {ids.calculate_age(person['dob'])}")
+                        for label, person in checkable
+                        if not ids.verify_age_dob_match(person["age"], person["dob"], tolerance=age_tol)]
+            msgs9 = [f"{label}: the stated age is {person['age']}, but the date of birth {person['dob']} "
+                     f"gives age {ids.calculate_age(person['dob'])}"
                      for label, person in checkable
                      if not ids.verify_age_dob_match(person["age"], person["dob"], tolerance=age_tol)]
-            r.emit("Rule9_Age_DOB_Mismatch", bool(msgs9), "; ".join(msgs9) if msgs9 else "OK")
+            r.emit("Rule9_Age_DOB_Mismatch", bool(msgs9), "; ".join(msgs9) if msgs9 else "OK",
+                   {"compare": compare9} if compare9 else None)
     else:
         r.emit("Rule9_Age_DOB_Mismatch", False)
 
@@ -427,24 +457,26 @@ def evaluate(bundle: dict, rule_config: Dict[str, dict], historical_identity: Li
         signals = []
         ai = ids.aadhaar_issue(primary.get("aadhaar"))
         pi = ids.pan_issue(primary.get("pan"))
-        signals += [s for s in (ai, pi) if s]
+        # short words here: the full reason is already on the PAN / Aadhaar rule, so it is not repeated
+        signals += [label for label, issue in (("invalid Aadhaar", ai), ("invalid PAN", pi)) if issue]
         age = primary.get("age")
         if age is not None:
             try:
                 if int(age) < policy.minor_below_years:
-                    signals.append(f"under_18 (age={age})")
+                    signals.append(f"applicant is under 18 (age {age})")
             except (TypeError, ValueError):
                 pass
         prior = [h for h in historical_identity
                  if customer_id is not None and str(h.get("customer_id")) == str(customer_id)]
         has_format_issue = bool(ai or pi)
         if has_format_issue and len(prior) == 0:
-            signals.append("no_prior_applications_for_customer")
+            signals.append("no earlier applications from this customer")
         triggered = len(signals) >= 2 and has_format_issue
+        said = ", ".join(signals[:-1]) + " and " + signals[-1] if len(signals) > 1 else "".join(signals)
         if triggered:
-            msg = "Weak signals: " + "; ".join(signals)
+            msg = f"Signs found: {said}"
         else:
-            msg = "OK" if not signals else f"Only weak/incomplete signals (not enough to flag): {'; '.join(signals)}"
+            msg = "OK" if not signals else f"Only one sign, not enough to flag: {said}"
         r.emit("Rule13_Synthetic_Identity", triggered, msg)
     else:
         r.emit("Rule13_Synthetic_Identity", False)
@@ -465,6 +497,7 @@ def evaluate(bundle: dict, rule_config: Dict[str, dict], historical_identity: Li
                 kyc_last = ids.normalize_name((primary_block.get("kyc") or {}).get("last_name"))
                 my_surnames = {kyc_last} if len(kyc_last) >= policy.family_surname_min_chars else set()
             hits = []
+            records15: List[dict] = []
             for h in historical_addresses:
                 if customer_id is not None and str(h.get("customer_id")) == str(customer_id):
                     continue
@@ -477,11 +510,17 @@ def evaluate(bundle: dict, rule_config: Dict[str, dict], historical_identity: Li
                     if my_surnames & h_names:
                         continue
                     ref = h.get("application_number") or h.get("application_id")
-                    hits.append(f"• score={score:.2f} | application={ref} | customer_id={h.get('customer_id')} | "
-                                f"no family link "
-                                f"(surnames: applicant {sorted(my_surnames) or 'unknown'} vs "
-                                f"{sorted(h_names) or 'unknown'}) | address='{other[:policy.rule15_address_chars]}'")
-            r.emit("Rule15_Address_Reuse", bool(hits), "\n".join(hits[:n]) if hits else "OK")
+                    hits.append(ref)
+                    # the same hit as an object, one value per key (the screen lists them one above the other)
+                    records15.append({
+                        "score": round(score, 2), "application": ref, "customer_id": h.get("customer_id"),
+                        "family_link": "None found (applicant surnames " + (", ".join(sorted(my_surnames)) or "unknown")
+                                       + "; other occupant " + (", ".join(sorted(h_names)) or "unknown") + ")",
+                        "address": other[:policy.rule15_address_chars],
+                    })
+            said15 = ("%d earlier application%s use%s this address with no family link"
+                      % (len(hits), "s" if len(hits) != 1 else "", "" if len(hits) != 1 else "s")) if hits else "OK"
+            r.emit("Rule15_Address_Reuse", bool(hits), said15, {"records": records15[:n]} if records15 else None)
     else:
         r.emit("Rule15_Address_Reuse", False)
 
@@ -500,6 +539,7 @@ def evaluate(bundle: dict, rule_config: Dict[str, dict], historical_identity: Li
         else:
             cut = policy.rule16_address_chars
             msgs16 = []
+            compare16: List[dict] = []
             for other, other_addrs in co_with_addr:
                 best = (0.0, "", "")
                 for pa in primary_addrs:
@@ -513,9 +553,13 @@ def evaluate(bundle: dict, rule_config: Dict[str, dict], historical_identity: Li
                 if ignore_family and any(k in rel for k in policy.family_relations):
                     continue
                 msgs16.append(f"Applicant and co-applicant '{other.get('name') or 'unknown'}' share the same address "
-                              f"(score={best[0]:.2f} >= {threshold16:.2f}, relation='{rel or 'blank'}'): "
+                              f"(match {best[0]:.0%}; limit {threshold16:.0%}; relation: {rel or 'not stated'}): "
                               f"'{best[1][:cut]}'")
-            r.emit("Rule16_Relationship_Fraud", bool(msgs16), "; ".join(msgs16[:n]) if msgs16 else "OK")
+                compare16 += [_cmp("Address", best[1][:cut], best[2][:cut]),
+                              _cmp("Name", primary.get("name"), other.get("name")),
+                              _cmp("Match score", f"{best[0]:.2f}", f"limit {threshold16:.2f}")]
+            r.emit("Rule16_Relationship_Fraud", bool(msgs16), "; ".join(msgs16[:n]) if msgs16 else "OK",
+                   {"compare": compare16} if compare16 else None)
     else:
         r.emit("Rule16_Relationship_Fraud", False)
 

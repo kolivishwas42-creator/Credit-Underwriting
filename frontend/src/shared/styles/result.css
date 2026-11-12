@@ -7,7 +7,7 @@
   --r-gap: 14px;
   display: flex; flex-direction: column; gap: var(--r-gap); width: 100%; max-width: 1320px; margin: 0 auto;
   padding: 16px 24px 0; box-sizing: border-box; color: var(--text-primary, #0F172A);
-  font: 15px/22px "Lexend", "Inter", -apple-system, "Segoe UI", Roboto, sans-serif; letter-spacing: -.006em;
+  font: 15px/22px var(--font-body); letter-spacing: -.006em;
 }
 :root .cu-ui.cu-r *, :root .cu-ui.cu-r *::before, :root .cu-ui.cu-r *::after { box-sizing: border-box; }
 :root .cu-ui.cu-r :is(p, ol, ul, li, dl, dt, dd) { margin: 0; padding: 0; }
@@ -24,13 +24,13 @@
 :root .cu-ui.cu-r .cu-r-emblem svg { width: 20px; height: 20px; }
 :root .cu-ui.cu-r .cu-r-basic-head { flex: 1; min-width: 0; }
 :root .cu-ui.cu-r .cu-r-eyebrow { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; vertical-align: top; color: #A5B4FC; font: 700 10.5px/16px "Lexend", sans-serif;
-  letter-spacing: .07em; text-transform: uppercase; }
-:root .cu-ui.cu-r .cu-r-title { font: 700 22px/28px "Space Grotesk", "Inter", sans-serif; letter-spacing: -.02em;
+  white-space: nowrap; vertical-align: top; color: #A5B4FC; font: 700 12px/16px var(--font-body);
+  letter-spacing: .09em; text-transform: uppercase; }
+:root .cu-ui.cu-r .cu-r-title { font: 700 22px/28px var(--font-display); letter-spacing: -.02em;
   color: #fff; overflow-wrap: anywhere; }
 :root .cu-ui.cu-r .cu-r-subtitle { color: #CBD5E1; font-size: 13.5px; line-height: 19px; }
 :root .cu-ui.cu-r .cu-r-decision { flex: none; padding: 6px 14px; border-radius: 999px;
-  font: 700 12.5px/18px "Lexend", sans-serif; letter-spacing: .04em; text-transform: uppercase; }
+  font: 700 12.5px/18px var(--font-body); letter-spacing: .04em; text-transform: uppercase; }
 :root .cu-ui.cu-r .cu-r-decision.is-pass { background: #15803D; color: #fff; }
 :root .cu-ui.cu-r .cu-r-decision.is-review { background: #B45309; color: #fff; }
 :root .cu-ui.cu-r .cu-r-decision.is-fail { background: #DC2626; color: #fff; }
@@ -40,13 +40,13 @@
   gap: 10px 24px; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, .12); }
 :root .cu-ui.cu-r .cu-r-facts { display: flex; flex-wrap: wrap; gap: 6px 28px; min-width: 0; }
 :root .cu-ui.cu-r .cu-r-fact { min-width: 0; max-width: 280px; }
-:root .cu-ui.cu-r .cu-r-fact dt { color: #94A3B8; font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+:root .cu-ui.cu-r .cu-r-fact dt { color: #94A3B8; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
 :root .cu-ui.cu-r .cu-r-fact dd { color: #fff; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 :root .cu-ui.cu-r .cu-r-kpis { display: flex; flex-wrap: wrap; gap: 6px; }
 :root .cu-ui.cu-r .cu-r-kpi { display: inline-flex; align-items: baseline; gap: 6px; padding: 5px 12px; border-radius: 999px;
   background: rgba(255, 255, 255, .08); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14); color: #CBD5E1;
   font-size: 12.5px; white-space: nowrap; }
-:root .cu-ui.cu-r .cu-r-kpi b { color: #fff; font: 700 16px/20px "Space Grotesk", sans-serif; }
+:root .cu-ui.cu-r .cu-r-kpi b { color: #fff; font: 700 16px/20px var(--font-body); font-variant-numeric: tabular-nums;}
 :root .cu-ui.cu-r .cu-r-kpi.is-pass b { color: #86EFAC; }
 :root .cu-ui.cu-r .cu-r-kpi.is-review b { color: #FCD34D; }
 :root .cu-ui.cu-r .cu-r-kpi.is-fail b { color: #FCA5A5; }
@@ -58,12 +58,12 @@
 :root .cu-ui.cu-r .cu-r-card-icon { flex: none; display: grid; place-items: center; width: 28px; height: 28px;
   border-radius: 8px; background: var(--raised, #F1F5F9); color: var(--icon-default, #475569); }
 :root .cu-ui.cu-r .cu-r-card-icon.is-ai { background: #DBE4FF; color: #3B57D6; }
-:root .cu-ui.cu-r .cu-r-card-title { flex: 1 1 auto; min-width: 72px; font: 700 16px/22px "Space Grotesk", sans-serif; }
+:root .cu-ui.cu-r .cu-r-card-title { flex: 1 1 auto; min-width: 72px; font: 600 18px/26px var(--font-display); }
 :root .cu-ui.cu-r .cu-r-source { padding: 2px 10px; border-radius: 999px; background: #EEF0FC; color: #4148A8;
-  font-size: 11.5px; font-weight: 600; }
+  font-size: 12px; font-weight: 600; }
 :root .cu-ui.cu-r .cu-r-empty { padding: 14px 4px; color: var(--text-secondary, #64748B); font-size: 14px; }
 :root .cu-ui.cu-r .cu-r-more { align-self: flex-start; margin: 8px 0 0; padding: 0; border: 0; background: none;
-  box-shadow: none; color: #3B57D6; font: 600 13px "Lexend", sans-serif; cursor: pointer; }
+  box-shadow: none; color: #3B57D6; font: 600 13px var(--font-body); cursor: pointer; }
 :root .cu-ui.cu-r .cu-r-more:hover { text-decoration: underline; }
 
 /* ---------- 2. AI summary: points | Strengths | Concerns ---------- */
@@ -72,7 +72,7 @@
 :root .cu-ui.cu-r .cu-r-points { list-style: none; display: flex; flex-direction: column; gap: 8px; }
 :root .cu-ui.cu-r .cu-r-points li { display: flex; gap: 10px; align-items: flex-start; min-width: 0; }
 :root .cu-ui.cu-r .cu-r-points li > span { flex: none; display: grid; place-items: center; width: 22px; height: 22px;
-  margin-top: 1px; border-radius: 50%; background: var(--cu-action, #253DA3); color: #fff; font: 700 11.5px/1 "Space Grotesk", sans-serif; }
+  margin-top: 1px; border-radius: 50%; background: var(--cu-action, #253DA3); color: #fff; font: 700 12px/1 var(--font-body); }
 :root .cu-ui.cu-r .cu-r-points li > p { min-width: 0; font-size: 14px; line-height: 21px; overflow-wrap: anywhere; }
 :root .cu-ui.cu-r .cu-r-skel { display: grid; gap: 10px; }
 :root .cu-ui.cu-r .cu-r-skel i { display: block; height: 12px; border-radius: 6px;
@@ -86,17 +86,17 @@
 :root .cu-ui.cu-r .cu-r-side.is-pass { background: #F0FDF4; box-shadow: inset 0 0 0 1px #DCFCE7; }
 :root .cu-ui.cu-r .cu-r-side.is-fail { background: #FEF2F2; box-shadow: inset 0 0 0 1px #FEE2E2; }
 :root .cu-ui.cu-r .cu-r-side-title { display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
-  font: 700 14px/20px "Space Grotesk", sans-serif; }
+  font: 600 15px/22px var(--font-body); }
 :root .cu-ui.cu-r .cu-r-side.is-pass .cu-r-side-title { color: #166534; }
 :root .cu-ui.cu-r .cu-r-side.is-fail .cu-r-side-title { color: #B91C1C; }
 :root .cu-ui.cu-r .cu-r-side-title svg { width: 15px; height: 15px; stroke-width: 2.6; }
 :root .cu-ui.cu-r .cu-r-side-title span { margin-left: auto; padding: 0 8px; border-radius: 999px; background: #fff;
-  font: 600 12px/20px "Lexend", sans-serif; }
+  font: 600 12px/20px var(--font-body); }
 :root .cu-ui.cu-r .cu-r-side ul { list-style: none; display: flex; flex-direction: column; gap: 6px; }
 :root .cu-ui.cu-r .cu-r-side li { min-width: 0; font-size: 13px; line-height: 18px; overflow-wrap: anywhere; }
 :root .cu-ui.cu-r .cu-r-side li b { font-weight: 600; color: var(--text-primary, #0F172A); }
 :root .cu-ui.cu-r .cu-r-side li em { margin-left: 6px; padding: 0 6px; border-radius: 6px; background: #F5E7DD; color: #92400E;
-  font-style: normal; font-size: 11px; font-weight: 600; }
+  font-style: normal; font-size: 12px; font-weight: 600; }
 :root .cu-ui.cu-r .cu-r-side li span { display: block; color: var(--text-secondary, #64748B); font-size: 12.5px;
   overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 :root .cu-ui.cu-r .cu-r-side-empty { color: var(--text-secondary, #64748B); font-size: 13px; }
@@ -109,9 +109,9 @@
 :root .cu-ui.cu-r .cu-r-filters { display: flex; flex-wrap: wrap; gap: 6px; }
 :root .cu-ui.cu-r .cu-r-filter { display: inline-flex; align-items: center; gap: 6px; height: 28px; margin: 0; padding: 0 10px;
   border: 1px solid var(--border, #E2E8F0); border-radius: 999px; background: var(--surface, #fff); box-shadow: none;
-  color: var(--text-primary, #0F172A); font: 500 12.5px "Lexend", sans-serif; text-transform: none; cursor: pointer; }
+  color: var(--text-primary, #0F172A); font: 500 12.5px var(--font-body); text-transform: none; cursor: pointer; }
 :root .cu-ui.cu-r .cu-r-filter span { padding: 0 6px; border-radius: 999px; background: var(--raised, #F1F5F9);
-  color: var(--text-secondary, #64748B); font-size: 11.5px; }
+  color: var(--text-secondary, #64748B); font-size: 12px; }
 :root .cu-ui.cu-r .cu-r-filter.is-on { border-color: var(--cu-action, #253DA3); background: var(--cu-action, #253DA3); color: #fff; }
 :root .cu-ui.cu-r .cu-r-filter.is-on span { background: rgba(255, 255, 255, .18); color: #fff; }
 
@@ -139,9 +139,9 @@
 :root .cu-ui.cu-r .cu-r-rule-icon.is-na { background: #F1F5F9; color: #64748B; }
 :root .cu-ui.cu-r .cu-r-rule-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px; min-width: 0; }
 :root .cu-ui.cu-r .cu-r-rule-id { max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--text-disabled, #94A3B8); font: 500 11.5px ui-monospace, Consolas, monospace; }
+  color: var(--text-disabled, #94A3B8); font: 500 12px ui-monospace, Consolas, monospace; }
 :root .cu-ui.cu-r .cu-r-sev { padding: 1px 8px; border-radius: 6px; background: var(--raised, #F1F5F9);
-  color: var(--text-secondary, #64748B); font-size: 11.5px; font-weight: 600; }
+  color: var(--text-secondary, #64748B); font-size: 12px; font-weight: 600; }
 :root .cu-ui.cu-r .cu-r-rule-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 :root .cu-ui.cu-r .cu-r-rule-text b { font-size: 14px; font-weight: 600; line-height: 19px;
   overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
@@ -158,7 +158,7 @@
 :root .cu-ui.cu-r .cu-r-rule-values dd { font-weight: 600; overflow-wrap: anywhere; }
 
 :root .cu-ui.cu-r .cu-chip { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px 0 6px;
-  border-radius: 999px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+  border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
 :root .cu-ui.cu-r .cu-chip svg { width: 12px; height: 12px; stroke-width: 2.6; }
 :root .cu-ui.cu-r .cu-chip.is-pass { background: #E3F0E8; color: #166534; }
 :root .cu-ui.cu-r .cu-chip.is-review { background: #F5E7DD; color: #92400E; }
@@ -167,14 +167,14 @@
 :root .cu-ui.cu-r .cu-chip.is-na { background: #F1F5F9; color: #64748B; }
 
 :root .cu-ui.cu-r .cu-r-calc-list { display: flex; flex-direction: column; }
-:root .cu-ui.cu-r .cu-r-calc-group { margin: 10px 0 2px; color: var(--text-secondary, #64748B); font-size: 11px;
-  font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+:root .cu-ui.cu-r .cu-r-calc-group { margin: 10px 0 2px; color: var(--text-secondary, #64748B); font-size: 12px;
+  font-weight: 600; letter-spacing: .09em; text-transform: uppercase; }
 :root .cu-ui.cu-r .cu-r-calc-group:first-child { margin-top: 0; }
 :root .cu-ui.cu-r .cu-r-calc { display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
   padding: 7px 0; border-bottom: 1px dashed var(--border, #E2E8F0); }
 :root .cu-ui.cu-r .cu-r-calc:last-child { border-bottom: 0; }
 :root .cu-ui.cu-r .cu-r-calc dt { min-width: 0; color: var(--text-secondary, #64748B); font-size: 13px; }
-:root .cu-ui.cu-r .cu-r-calc dt span { display: block; color: var(--text-disabled, #94A3B8); font-size: 11.5px; }
+:root .cu-ui.cu-r .cu-r-calc dt span { display: block; color: var(--text-disabled, #94A3B8); font-size: 12px; }
 :root .cu-ui.cu-r .cu-r-calc dd { flex: none; max-width: 60%; color: var(--text-primary, #0F172A); font-size: 14px;
   font-weight: 600; text-align: right; overflow-wrap: anywhere; }
 :root .cu-ui.cu-r .cu-r-calc.is-pass dd { color: #166534; }
@@ -190,7 +190,7 @@
 :root .cu-ui.cu-r .cu-r-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 :root .cu-ui.cu-r .cu-r-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 38px;
   margin: 0; padding: 0 14px; border: 1px solid transparent; border-radius: 8px; box-shadow: none;
-  font: 600 13.5px "Lexend", sans-serif; text-transform: none; letter-spacing: normal; cursor: pointer;
+  font: 600 13.5px var(--font-body); text-transform: none; letter-spacing: normal; cursor: pointer;
   transition: background .12s ease, border-color .12s ease; }
 :root .cu-ui.cu-r .cu-r-btn:disabled { opacity: .5; cursor: not-allowed; }
 :root .cu-ui.cu-r .cu-r-btn.is-primary { background: var(--cu-action, #253DA3); color: #fff; }
@@ -229,11 +229,11 @@
 :root .cu-ui.cu-r .cu-r-ring-arc.is-fail { stroke: #DC2626; }
 :root .cu-ui.cu-r .cu-r-ring-mid { position: absolute; top: 0; left: 50%; width: 112px; height: 112px; transform: translateX(-50%);
   display: flex; flex-direction: column; align-items: center; justify-content: center; }
-:root .cu-ui.cu-r .cu-r-ring-mid b { font: 700 24px/1 "Space Grotesk", sans-serif; color: var(--text-primary, #0F172A); }
-:root .cu-ui.cu-r .cu-r-ring-mid small { margin-top: 3px; color: var(--text-secondary, #64748B); font-size: 11px; font-weight: 600;
+:root .cu-ui.cu-r .cu-r-ring-mid b { font: 700 24px/1 var(--font-display); color: var(--text-primary, #0F172A); }
+:root .cu-ui.cu-r .cu-r-ring-mid small { margin-top: 3px; color: var(--text-secondary, #64748B); font-size: 12px; font-weight: 600;
   letter-spacing: .04em; text-transform: uppercase; }
 :root .cu-ui.cu-r .cu-r-ring-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; }
-:root .cu-ui.cu-r .cu-r-ring-legend i { padding: 1px 8px; border-radius: 999px; font: 600 11px/18px "Lexend", sans-serif; font-style: normal; }
+:root .cu-ui.cu-r .cu-r-ring-legend i { padding: 1px 8px; border-radius: 999px; font: 600 12px/18px var(--font-body); font-style: normal; }
 :root .cu-ui.cu-r .cu-r-ring-legend .is-pass { background: #DCFCE7; color: #166534; }
 :root .cu-ui.cu-r .cu-r-ring-legend .is-review { background: #FEF3C7; color: #92400E; }
 :root .cu-ui.cu-r .cu-r-ring-legend .is-fail { background: #FEE2E2; color: #B91C1C; }
@@ -248,7 +248,7 @@
   background: linear-gradient(90deg, #EEF2FF, #F8FAFF); box-shadow: inset 3px 0 0 #3B57D6, inset 0 0 0 1px #DBE3F5; }
 :root .cu-ui.cu-r .cu-r-points li.is-lead > span { width: 26px; height: 26px; background: #3B57D6; color: #fff; }
 :root .cu-ui.cu-r .cu-r-points li.is-lead > span svg { width: 14px; height: 14px; }
-:root .cu-ui.cu-r .cu-r-points li.is-lead > p { font: 600 15.5px/23px "Lexend", sans-serif; color: #0F172A; }
+:root .cu-ui.cu-r .cu-r-points li.is-lead > p { font: 600 15.5px/23px var(--font-body); color: #0F172A; }
 
 /* Concerns (cards) | Strengths (chips) */
 :root .cu-ui.cu-r .cu-r-proscons { margin-top: 14px; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
@@ -271,18 +271,18 @@
 
 /* Calculations v3 */
 :root .cu-ui.cu-r .cu-r-count-pill { padding: 0 9px; border-radius: 999px; background: var(--raised, #F1F5F9);
-  color: var(--text-secondary, #475569); font: 600 12px/22px "Lexend", sans-serif; }
+  color: var(--text-secondary, #475569); font: 600 12px/22px var(--font-body); }
 :root .cu-ui.cu-r .cu-r-calc-body { display: flex; flex-direction: column; gap: 12px; }
 :root .cu-ui.cu-r .cu-r-calc-block { display: flex; flex-direction: column; }
 :root .cu-ui.cu-r .cu-r-calc-group { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; color: #3B57D6;
-  font: 700 11px/16px "Lexend", sans-serif; letter-spacing: .08em; text-transform: uppercase; }
+  font: 700 12px/16px var(--font-body); letter-spacing: .09em; text-transform: uppercase; }
 :root .cu-ui.cu-r .cu-r-calc-group::after { content: ""; flex: 1; height: 1px; background: #E2E8F0; }
 :root .cu-ui.cu-r .cu-r-calc-list { border-radius: 12px; background: #fff; box-shadow: inset 0 0 0 1px #E6EBF5; overflow: hidden; }
 :root .cu-ui.cu-r .cu-r-calc { align-items: center; padding: 9px 12px; border-bottom: 1px solid #EEF2F7; }
 :root .cu-ui.cu-r .cu-r-calc:nth-child(even) { background: #FAFBFE; }
 :root .cu-ui.cu-r .cu-r-calc dt { display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px; color: #475569; font-size: 13px; font-weight: 500; }
 :root .cu-ui.cu-r .cu-r-calc dt span { flex-basis: 100%; }
-:root .cu-ui.cu-r .cu-r-calc dd { font: 700 14.5px/20px "Space Grotesk", sans-serif; font-variant-numeric: tabular-nums;
+:root .cu-ui.cu-r .cu-r-calc dd { font: 700 14.5px/20px var(--font-body); font-variant-numeric: tabular-nums;
   text-align: right; overflow-wrap: anywhere; }
 :root .cu-ui.cu-r .cu-r-calc dd.is-mono { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 13px; font-weight: 600; }
 :root .cu-ui.cu-r .cu-r-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: #94A3B8; }
@@ -292,9 +292,9 @@
 :root .cu-ui.cu-r .cu-r-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
 :root .cu-ui.cu-r .cu-r-tile { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: 12px;
   background: linear-gradient(180deg, #F8FAFF, #fff); box-shadow: inset 0 0 0 1px #E2E8F5; }
-:root .cu-ui.cu-r .cu-r-tile dd { font: 700 20px/26px "Space Grotesk", sans-serif; color: #0F172A; font-variant-numeric: tabular-nums;
+:root .cu-ui.cu-r .cu-r-tile dd { font: 700 20px/26px var(--font-display); color: #0F172A; font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere; }
-:root .cu-ui.cu-r .cu-r-tile dt { color: #64748B; font-size: 11.5px; font-weight: 600; }
+:root .cu-ui.cu-r .cu-r-tile dt { color: #64748B; font-size: 12px; font-weight: 600; }
 :root .cu-ui.cu-r .cu-r-tile.is-pass dd { color: #15803D; }
 :root .cu-ui.cu-r .cu-r-tile.is-review dd { color: #B45309; }
 :root .cu-ui.cu-r .cu-r-tile.is-fail dd { color: #DC2626; }
@@ -393,19 +393,19 @@
 /* ---------- decision words, point -> rule links, case strip (owner 2026-11-11) ---------- */
 :root .cu-ui.cu-r .cu-r-verdict { flex: none; display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 :root .cu-ui.cu-r .cu-r-verdict-word { padding: 6px 16px; border-radius: 999px; color: #fff;
-  font: 700 13px/18px "Lexend", sans-serif; letter-spacing: .06em; text-transform: uppercase; background: #475569; }
+  font: 700 13px/18px var(--font-body); letter-spacing: .06em; text-transform: uppercase; background: #475569; }
 :root .cu-ui.cu-r .cu-r-verdict.is-pass .cu-r-verdict-word { background: #15803D; }
 :root .cu-ui.cu-r .cu-r-verdict.is-review .cu-r-verdict-word { background: #B45309; }
 :root .cu-ui.cu-r .cu-r-verdict.is-fail .cu-r-verdict-word { background: #DC2626; }
 :root .cu-ui.cu-r .cu-r-verdict.is-info .cu-r-verdict-word { background: #3B57D6; }
 :root .cu-ui.cu-r .cu-r-verdict > .cu-r-decision:not(.cu-r-verdict-word) { padding: 0; background: none !important; box-shadow: none;
-  color: rgba(255, 255, 255, .78) !important; font: 500 12px/16px "Lexend", sans-serif; letter-spacing: 0; text-transform: none; }
+  color: rgba(255, 255, 255, .78) !important; font: 500 12px/16px var(--font-body); letter-spacing: 0; text-transform: none; }
 
 :root .cu-ui.cu-r .cu-r-points li { flex-wrap: nowrap; }
 :root .cu-ui.cu-r .cu-r-points li > p { flex: 1 1 auto; }
 :root .cu-ui.cu-r .cu-r-link { flex: none; align-self: center; display: inline-flex; align-items: center; gap: 2px; height: 24px;
   margin: 0; padding: 0 6px 0 9px; border: 1px solid var(--border, #E2E8F0); border-radius: 999px; background: #fff;
-  color: #253DA3; font: 700 11.5px/1 "Lexend", sans-serif; cursor: pointer; }
+  color: #253DA3; font: 700 12px/1 var(--font-body); cursor: pointer; }
 :root .cu-ui.cu-r .cu-r-link svg { width: 12px; height: 12px; transform: rotate(-90deg); }
 :root .cu-ui.cu-r .cu-r-link.is-fail { border-color: #FECACA; color: #B91C1C; }
 :root .cu-ui.cu-r .cu-r-link.is-review { border-color: #FDE68A; color: #92400E; }
@@ -439,18 +439,18 @@
   background: rgba(255, 255, 255, .1); }
 :root .cu-ui.cu-r .cu-r-strip-emblem svg { width: 15px; height: 15px; }
 :root .cu-ui.cu-r .cu-r-strip-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font: 700 15px/20px "Space Grotesk", sans-serif; }
+  font: 600 18px/26px var(--font-display); }
 :root .cu-ui.cu-r .cu-r-strip-fact { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; white-space: nowrap;
   font: 600 13px/18px ui-monospace, "Cascadia Code", Consolas, monospace; color: #E2E8F0; }
-:root .cu-ui.cu-r .cu-r-strip-fact small { font: 600 10.5px "Lexend", sans-serif; letter-spacing: .06em; text-transform: uppercase; color: #93A4C3; }
+:root .cu-ui.cu-r .cu-r-strip-fact small { font: 600 12px var(--font-body); letter-spacing: .06em; text-transform: uppercase; color: #93A4C3; }
 :root .cu-ui.cu-r .cu-r-strip-counts { display: inline-flex; gap: 10px; margin-left: auto; white-space: nowrap; }
-:root .cu-ui.cu-r .cu-r-strip-counts i { font: 500 12px/18px "Lexend", sans-serif; font-style: normal; color: #CBD5E1; }
-:root .cu-ui.cu-r .cu-r-strip-counts b { margin-right: 4px; font: 700 14px "Space Grotesk", sans-serif; color: #fff; }
+:root .cu-ui.cu-r .cu-r-strip-counts i { font: 500 12px/18px var(--font-body); font-style: normal; color: #CBD5E1; }
+:root .cu-ui.cu-r .cu-r-strip-counts b { margin-right: 4px; font: 700 14px var(--font-body); color: #fff; font-variant-numeric: tabular-nums;}
 :root .cu-ui.cu-r .cu-r-strip-counts .is-pass b { color: #86EFAC; }
 :root .cu-ui.cu-r .cu-r-strip-counts .is-review b { color: #FCD34D; }
 :root .cu-ui.cu-r .cu-r-strip-counts .is-fail b { color: #FCA5A5; }
 :root .cu-ui.cu-r .cu-r-strip .cu-r-verdict { flex-direction: row; align-items: center; gap: 8px; }
-:root .cu-ui.cu-r .cu-r-strip .cu-r-verdict-word { padding: 3px 12px; font-size: 11.5px; }
+:root .cu-ui.cu-r .cu-r-strip .cu-r-verdict-word { padding: 3px 12px; font-size: 12px; }
 :root .cu-ui.cu-r .cu-r-strip .cu-r-verdict > .cu-r-decision:not(.cu-r-verdict-word) { display: none; }
 :root .cu-ui.cu-r .cu-r-strip-top { flex: none; display: grid; place-items: center; width: 30px; height: 30px; margin: 0; padding: 0;
   border: 0; border-radius: 8px; background: rgba(255, 255, 255, .1); color: #fff; cursor: pointer; }
@@ -475,13 +475,13 @@
   padding: 14px 18px; border: 0; background: none; box-shadow: none; text-align: left; color: inherit; cursor: pointer; }
 :root .cu-ui.cu-r .cu-r-details-head:hover { background: #F8FAFC; }
 :root .cu-ui.cu-r .cu-r-details-head:focus-visible { outline: 2px solid #3B57D6; outline-offset: -2px; }
-:root .cu-ui.cu-r .cu-r-details-title { font: 700 16px/22px "Space Grotesk", sans-serif; color: var(--text-primary, #0F172A); }
+:root .cu-ui.cu-r .cu-r-details-title { font: 600 18px/26px var(--font-display); color: var(--text-primary, #0F172A); }
 :root .cu-ui.cu-r .cu-r-details-names { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; flex: 1 1 200px; }
 :root .cu-ui.cu-r .cu-r-details-names i { padding: 2px 10px; border-radius: 999px; background: var(--raised, #F1F5F9);
-  color: var(--text-secondary, #475569); font: 500 12px/18px "Lexend", sans-serif; font-style: normal; white-space: nowrap; }
+  color: var(--text-secondary, #475569); font: 500 12px/18px var(--font-body); font-style: normal; white-space: nowrap; }
 :root .cu-ui.cu-r .cu-r-details-names i::before { content: attr(data-name); }
 :root .cu-ui.cu-r .cu-r-details-toggle { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; color: #3B57D6;
-  font: 600 13px "Lexend", sans-serif; }
+  font: 600 13px var(--font-body); }
 :root .cu-ui.cu-r .cu-r-details-toggle svg { width: 14px; height: 14px; transition: transform .15s; }
 :root .cu-ui.cu-r .cu-r-details.is-open .cu-r-details-toggle svg { transform: rotate(180deg); }
 :root .cu-ui.cu-r .cu-r-details:not(.is-open) .cu-r-details-body { display: none; }
@@ -525,17 +525,17 @@
 :root .cu-ui.cu-r .cu-r-rail::-webkit-scrollbar { display: none; }
 :root .cu-ui.cu-r .cu-r-tab { flex: 1 0 auto; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   height: 44px; margin: 0; padding: 0 18px; border: 0; border-radius: 12px; background: none; box-shadow: none;
-  color: #475569; font: 600 14px "Lexend", sans-serif; white-space: nowrap; cursor: pointer; transition: background .15s, color .15s; }
+  color: #475569; font: 600 14px var(--font-body); white-space: nowrap; cursor: pointer; transition: background .15s, color .15s; }
 :root .cu-ui.cu-r .cu-r-tab svg { width: 17px; height: 17px; }
 :root .cu-ui.cu-r .cu-r-tab:hover:not(.is-on) { background: #F5F8FF; color: #253DA3; }
 :root .cu-ui.cu-r .cu-r-tab.is-on { background: linear-gradient(120deg, #1E1B4B, #312E81 55%, #3B57D6); color: #fff;
   box-shadow: 0 8px 18px -10px rgba(37, 61, 163, .8); }
 :root .cu-ui.cu-r .cu-r-tab:focus-visible { outline: 2px solid #3B57D6; outline-offset: 2px; }
 :root .cu-ui.cu-r .cu-r-tab-count { min-width: 24px; padding: 0 7px; border-radius: 999px; background: #EEF3FF; color: #253DA3;
-  font: 700 12px/20px "Space Grotesk", sans-serif; }
+  font: 700 12px/20px var(--font-body); }
 :root .cu-ui.cu-r .cu-r-tab.is-on .cu-r-tab-count { background: rgba(255, 255, 255, .18); color: #fff; }
 :root .cu-ui.cu-r .cu-r-tab-alert { min-width: 20px; padding: 0 6px; border-radius: 999px; background: #DC2626; color: #fff;
-  font: 700 11px/20px "Space Grotesk", sans-serif; font-style: normal; }
+  font: 700 12px/20px var(--font-body); font-style: normal; }
 /* panes use the full width: rules 3 cards a row on a wide screen, calculations in 2 columns */
 @media (min-width: 1200px) {
   :root .cu-ui.cu-r.is-tabbed .cu-r-pane.is-rules .cu-r-rule-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -551,12 +551,12 @@
   color: inherit; font: inherit; cursor: pointer; transition: box-shadow .15s, transform .15s; }
 :root .cu-ui.cu-r .cu-r-jump:hover { box-shadow: inset 0 0 0 1px #B8C8FF, 0 10px 22px -16px rgba(37, 61, 163, .6); transform: translateY(-1px); }
 :root .cu-ui.cu-r .cu-r-jump:focus-visible { outline: 2px solid #3B57D6; outline-offset: 2px; }
-:root .cu-ui.cu-r .cu-r-jump-head { display: flex; align-items: center; gap: 8px; color: #253DA3; font: 700 13px "Lexend", sans-serif;
+:root .cu-ui.cu-r .cu-r-jump-head { display: flex; align-items: center; gap: 8px; color: #253DA3; font: 700 13px var(--font-body);
   letter-spacing: .04em; text-transform: uppercase; }
 :root .cu-ui.cu-r .cu-r-jump-head svg { width: 16px; height: 16px; }
 :root .cu-ui.cu-r .cu-r-jump-head svg:last-child { margin-left: auto; transform: rotate(-90deg); }
-:root .cu-ui.cu-r .cu-r-jump-big { color: #475569; font: 500 14px "Lexend", sans-serif; }
-:root .cu-ui.cu-r .cu-r-jump-big b { margin-right: 4px; font: 700 26px/1 "Space Grotesk", sans-serif; }
+:root .cu-ui.cu-r .cu-r-jump-big { color: #475569; font: 500 14px var(--font-body); }
+:root .cu-ui.cu-r .cu-r-jump-big b { margin-right: 4px; font: 700 26px/1 var(--font-display); }
 :root .cu-ui.cu-r .cu-r-jump-big b.is-fail { color: #DC2626; }
 :root .cu-ui.cu-r .cu-r-jump-big b.is-pass { color: #15803D; }
 :root .cu-ui.cu-r .cu-r-jump-big small { color: #94A3B8; }
@@ -568,7 +568,7 @@
 :root .cu-ui.cu-r .cu-r-jump-list > span { display: flex; justify-content: space-between; gap: 10px; min-width: 0; font-size: 13px; }
 :root .cu-ui.cu-r .cu-r-jump-list em { overflow: hidden; color: #64748B; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
 :root .cu-ui.cu-r .cu-r-jump-list b { flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; color: #0F172A; font: 700 14px "Space Grotesk", sans-serif; }
+  white-space: nowrap; color: #0F172A; font: 700 14px var(--font-body); font-variant-numeric: tabular-nums;}
 :root .cu-ui.cu-r .cu-r-jump-list small, :root .cu-ui.cu-r .cu-r-jump-note { color: #94A3B8; font-size: 12.5px; }
 @media (max-width: 640px) {
   :root .cu-ui.cu-r .cu-r-rail { padding: 4px; gap: 4px; border-radius: 14px; }
@@ -593,17 +593,17 @@
   background: rgba(255, 255, 255, .16); }
 :root .cu-ui.cu-r .cu-r-next-icon svg { width: 15px; height: 15px; }
 :root .cu-ui.cu-r .cu-r-next > span:last-child { min-width: 0; font-size: 14px; line-height: 21px; overflow-wrap: anywhere; }
-:root .cu-ui.cu-r .cu-r-next b { display: block; color: #A5B4FC; font: 700 11px/16px "Lexend", sans-serif; letter-spacing: .08em;
+:root .cu-ui.cu-r .cu-r-next b { display: block; color: #A5B4FC; font: 700 12px/16px var(--font-body); letter-spacing: .08em;
   text-transform: uppercase; }
 
 :root .cu-ui.cu-r .cu-r-keynums { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0 0; }
 :root .cu-ui.cu-r .cu-r-keynum { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 10px 14px; border-radius: 12px;
   background: #F5F8FF; box-shadow: inset 0 0 0 1px #E0E7FF; }
-:root .cu-ui.cu-r .cu-r-keynum dt { overflow: hidden; color: #64748B; font: 600 11.5px/16px "Lexend", sans-serif; text-overflow: ellipsis;
+:root .cu-ui.cu-r .cu-r-keynum dt { overflow: hidden; color: #64748B; font: 600 12px/16px var(--font-body); text-overflow: ellipsis;
   white-space: nowrap; }
-:root .cu-ui.cu-r .cu-r-keynum dd { margin: 0; color: #0F172A; font: 700 19px/25px "Space Grotesk", sans-serif;
+:root .cu-ui.cu-r .cu-r-keynum dd { margin: 0; color: #0F172A; font: 700 19px/25px var(--font-display);
   font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-:root .cu-ui.cu-r .cu-r-keynum small { color: #94A3B8; font-size: 11.5px; }
+:root .cu-ui.cu-r .cu-r-keynum small { color: #94A3B8; font-size: 12px; }
 :root .cu-ui.cu-r .cu-r-keynum.is-pass { box-shadow: inset 3px 0 0 #16A34A, inset 0 0 0 1px #E0E7FF; }
 :root .cu-ui.cu-r .cu-r-keynum.is-pass dd { color: #15803D; }
 :root .cu-ui.cu-r .cu-r-keynum.is-review { box-shadow: inset 3px 0 0 #D97706, inset 0 0 0 1px #E0E7FF; }
@@ -614,8 +614,8 @@
 :root .cu-ui.cu-r .cu-r-compare { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; }
 :root .cu-ui.cu-r .cu-r-compare-cell { display: flex; flex-direction: column; gap: 1px; min-width: 0; padding: 7px 10px; border-radius: 10px;
   background: #fff; box-shadow: inset 0 0 0 1px #E2E8F0; }
-:root .cu-ui.cu-r .cu-r-compare-cell small { color: #64748B; font: 600 11px/15px "Lexend", sans-serif; letter-spacing: .03em; }
-:root .cu-ui.cu-r .cu-r-compare-cell b { min-width: 0; overflow: hidden; color: #0F172A; font: 700 14px/20px "Space Grotesk", sans-serif;
+:root .cu-ui.cu-r .cu-r-compare-cell small { color: #64748B; font: 600 12px/15px var(--font-body); letter-spacing: .03em; }
+:root .cu-ui.cu-r .cu-r-compare-cell b { min-width: 0; overflow: hidden; color: #0F172A; font: 700 14px/20px var(--font-body);
   text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 :root .cu-ui.cu-r .cu-r-compare-cell.is-fail b { color: #DC2626; }
 :root .cu-ui.cu-r .cu-r-compare-cell.is-review b { color: #B45309; }
@@ -629,10 +629,10 @@
 :root .cu-ui.cu-r .cu-r-rail.is-stuck { box-shadow: inset 0 0 0 1px #E0E7FF, 0 12px 24px -16px rgba(30, 27, 75, .55); }
 :root .cu-ui.cu-r .cu-r-rail-case { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 10px; min-width: 0; max-width: 34%;
   height: 44px; margin: 0; padding: 0 14px; border: 0; border-radius: 12px; background: #F5F8FF; box-shadow: none; color: #1E1B4B;
-  font: 700 14px "Space Grotesk", sans-serif; cursor: pointer; animation: cu-r-pane-in .18s ease-out; }
+  font: 700 14px var(--font-body); cursor: pointer; animation: cu-r-pane-in .18s ease-out; }
 :root .cu-ui.cu-r .cu-r-rail-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 :root .cu-ui.cu-r .cu-r-rail-verdict { flex: none; padding: 2px 10px; border-radius: 999px; background: #475569; color: #fff;
-  font: 700 11px/18px "Lexend", sans-serif; letter-spacing: .06em; text-transform: uppercase; }
+  font: 700 12px/18px var(--font-body); letter-spacing: .06em; text-transform: uppercase; }
 :root .cu-ui.cu-r .cu-r-rail-verdict.is-pass { background: #15803D; }
 :root .cu-ui.cu-r .cu-r-rail-verdict.is-review { background: #B45309; }
 :root .cu-ui.cu-r .cu-r-rail-verdict.is-fail { background: #DC2626; }
@@ -724,7 +724,7 @@
 :root .cu-ui.cu-r .cu-r-rule-table { width: 100%; margin: 0 0 10px; border-collapse: collapse; font-size: 13px; }
 :root .cu-ui.cu-r .cu-r-rule-table :is(th, td) { padding: 7px 10px; border: 1px solid var(--border, #E2E8F0); text-align: left;
   overflow-wrap: anywhere; vertical-align: top; }
-:root .cu-ui.cu-r .cu-r-rule-table thead th { background: #F1F5F9; color: var(--text-secondary, #475569); font-size: 11.5px; font-weight: 700;
+:root .cu-ui.cu-r .cu-r-rule-table thead th { background: #F1F5F9; color: var(--text-secondary, #475569); font-size: 12px; font-weight: 700;
   letter-spacing: .04em; text-transform: uppercase; }
 :root .cu-ui.cu-r .cu-r-rule-table tbody th { width: 28%; color: var(--text-secondary, #475569); font-weight: 600; background: #FAFBFE; }
 :root .cu-ui.cu-r .cu-r-rule-table td { font-weight: 600; color: var(--text-primary, #0F172A); }
@@ -739,3 +739,18 @@
 :root .cu-ui.cu-r .cu-r-compare-cell.is-fail b { color: #991B1B; }
 :root .cu-ui.cu-r .cu-r-compare-cell.is-review b { color: #92400E; }
 :root .cu-ui.cu-r .cu-r-compare-cell.is-pass b { color: #166534; }
+
+/* a rule opened: its message, then each compared field as two boxes side by side */
+:root .cu-ui.cu-r .cu-r-rule-msg { margin: 0; padding: 10px 14px 4px; color: var(--text-primary, #0F172A); font-size: 14px; line-height: 22px; overflow-wrap: anywhere; }
+:root .cu-ui.cu-r .cu-r-cmp-set { display: grid; gap: 10px; padding: 10px 14px 14px; }
+:root .cu-ui.cu-r .cu-r-cmp-line { display: grid; gap: 4px; min-width: 0; }
+:root .cu-ui.cu-r .cu-r-cmp-field { color: #334155; font-size: 12px; font-weight: 700; letter-spacing: .02em; }
+:root .cu-ui.cu-r .cu-r-cmp-line .cu-r-compare { width: 100%; }
+:root .cu-ui.cu-r .cu-r-cmp-line .cu-r-compare-cell b { -webkit-line-clamp: unset; display: block; white-space: normal; overflow: visible; }
+
+/* a rule's matching records: one card per record, its values one above the other (label, then value) */
+:root .cu-ui.cu-r .cu-r-recs { display: grid; gap: 10px; padding: 10px 14px 14px; }
+:root .cu-ui.cu-r .cu-r-rec { display: grid; gap: 2px; margin: 0; padding: 10px 12px; border: 1.5px solid #64748B; border-radius: 10px; background: #F1F5F9; min-width: 0; }
+:root .cu-ui.cu-r .cu-r-rec dt { margin-top: 6px; color: #334155; font-size: 12px; font-weight: 700; }
+:root .cu-ui.cu-r .cu-r-rec dt:first-child { margin-top: 0; }
+:root .cu-ui.cu-r .cu-r-rec dd { margin: 0; color: #020617; font-size: 14px; font-weight: 700; overflow-wrap: anywhere; }

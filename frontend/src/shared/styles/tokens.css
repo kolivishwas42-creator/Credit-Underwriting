@@ -50,6 +50,19 @@
   /* Type — two faces, one job each */
   --font-display: "Space Grotesk", "Inter", -apple-system, "Segoe UI", sans-serif;
   --font-body: "Lexend", "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* TYPE SCALE (design spec 4.2): Space Grotesk = titles, eyebrows, stat figures; Lexend = everything read */
+  --fs-display: 32px; --lh-display: 40px;   --ls-display: -.03em;
+  --fs-h1: 28px;      --lh-h1: 36px;        --ls-h1: -.03em;
+  --fs-h2: 24px;      --lh-h2: 32px;        --ls-h2: -.02em;
+  --fs-h3: 20px;      --lh-h3: 28px;        --ls-h3: -.015em;
+  --fs-card-title: 18px; --lh-card-title: 26px; --ls-card-title: -.015em;
+  --fs-eyebrow: 12px; --lh-eyebrow: 16px;   --ls-eyebrow: .09em;
+  --fs-body-lg: 17px; --lh-body-lg: 26px;
+  --fs-body: 15px;    --lh-body: 22px;      --ls-body: -.006em;
+  --fs-prose: 16px;   --lh-prose: 28px;
+  --fs-caption: 13px; --lh-caption: 18px;
+  --fs-small: 12px;   --lh-small: 16px;
+
   /* Radius / spacing */
   --r-xs: 6px; --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-pill: 999px;
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px; --s6: 24px;

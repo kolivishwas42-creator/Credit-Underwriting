@@ -20,6 +20,10 @@ export interface RuleResult {
   triggered?: boolean;
   enabled?: boolean;
   message?: string | null;
+  /** the two sides a rule compared, when it has them: what this application says | what it was compared with */
+  compare?: { field: string; application: string; other: string }[];
+  /** the matching records of a rule as objects (Rule 15: score, application, customer_id, family_link, address) */
+  records?: Record<string, string | number | null>[];
 }
 
 export interface Comparison {

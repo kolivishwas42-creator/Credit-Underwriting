@@ -40,20 +40,53 @@ const sentences = (text: string | null | undefined) =>
   String(text || "").split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
 const pretty = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 
-/** every rule result, then the skipped rules the result names but did not run */
+/** a skipped-rule note that only says the rule is switched off (or cannot run at all): those live in Rule configuration */
+const offNote = (key: string) => /disabled in configuration|not implementable/i.test(key);
+
+/** a record's keys, in this order, with plain labels (anything else follows, its key read as words) */
+const RECORD_LABELS: Record<string, string> = {
+  score: "Match score", application: "Application", customer_id: "Customer ID", family_link: "Family link", address: "Address",
+};
+const recordLines = (rec: Record<string, string | number | null>) => [
+  ...Object.keys(RECORD_LABELS).filter((k) => k in rec),
+  ...Object.keys(rec).filter((k) => !(k in RECORD_LABELS)),
+].map((k) => ({
+  label: RECORD_LABELS[k] ?? k.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()),
+  value: rec[k] === null || rec[k] === undefined || rec[k] === "" ? "—" : String(rec[k]),
+}));
+
+/** Rules that exist once for the applicant and once for the co-applicant share a number: say whose data each checks. */
+const WHO: Record<string, string> = {
+  Rule1_PAN_Aadhaar_Mismatch: "Applicant", Rule1_CoApp_PAN_Aadhaar_Mismatch: "Co-applicant",
+  Rule6_Shared_Bank_Account: "Applicant", Rule6_CoApp_Shared_Bank_Account: "Co-applicant",
+  Rule9_Age_DOB_Mismatch: "Applicant and co-applicant", Rule9_DOB_Conflict: "Applicant",
+};
+export const withWho = (name: string, key: string | undefined) => {
+  const who = key ? WHO[key] : undefined;
+  return who && !/primary|applicant/i.test(name) ? `${name} (${who})` : name;
+};
+
+/**
+ * The rules list: every enabled rule's result, then the rules skipped for lack of data. A disabled rule is NOT listed
+ * (owner 2026-11-12) until it is enabled: it is switched on in Rule configuration.
+ */
 export function toRules(data: Evaluation): RuleRow[] {
-  const results = data.rule_results || [];
+  const results = (data.rule_results || []).filter((r) => r.enabled !== false);
   const rows: RuleRow[] = results.map((r, i) => ({
     id: String(r.rule || r.rule_key || `#${i + 1}`),
-    name: r.name || r.rule_key || "Rule",
+    name: withWho(r.name || r.rule_key || "Rule", r.rule_key),
     outcome: ruleTone(r),
     outcomeLabel: ruleWord(r),
     severity: r.severity ? pretty(r.severity) : undefined,
     detail: r.message || undefined,
+    // collapsed to its name; opened, the message and the compared fields as two boxes side by side
+    detailOnOpen: true,
+    records: r.records?.length ? r.records.map(recordLines) : undefined,
+    compare: r.compare?.length ? r.compare.map((c) => ({ field: c.field, left: c.application, right: c.other })) : undefined,
   }));
   const seen = new Set(results.map((r) => r.rule_key));
   for (const key of data.skipped_rules || []) {
-    if (seen.has(key)) continue;
+    if (seen.has(key) || offNote(key)) continue;
     // a skipped rule arrives as one sentence ("Rule 11 [Identity-document mismatch]: not implementable …"):
     // the short "Rule 11" is the id, the bracketed title the name, the rest the detail
     const m = /^\s*(rule\s*\d+)\s*(?:\[([^\]]+)\])?\s*:?\s*(.*)$/i.exec(key);
@@ -134,7 +167,7 @@ export function toResultPage(data: Evaluation): ResultPageProps {
       facts,
       decision: { label: `${risk} risk`, tone: riskTone(risk) },
       kpis: [
-        { label: "Rules run", value: results.length, tone: "info" },
+        { label: "Rules run", value: results.filter((r) => r.enabled !== false).length, tone: "info" },
         { label: "Triggered", value: counts.trig, tone: counts.trig ? "fail" : "na" },
         { label: "Passed", value: counts.pass, tone: "pass" },
         { label: "Skipped / disabled", value: counts.skip, tone: "na" },

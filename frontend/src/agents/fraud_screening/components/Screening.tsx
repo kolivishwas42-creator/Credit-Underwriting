@@ -1,8 +1,7 @@
 // AML and PEP screening: side-by-side comparison of the application and each listed record.
-import { useState } from "react";
 import type { ScreenKind, ScreenRecord, Screening } from "../types";
 import { Pagination, usePagination } from "../../../shared/components";
-import { AML_LABEL, GAUGE_YELLOW_BAND, SCREENS, gaugeColour, gaugePoint, linkHost, plural, threshold } from "../utils/screening";
+import { AML_LABEL, GAUGE_YELLOW_BAND, SCREENS, gaugeColour, gaugePoint, linkHost, threshold } from "../utils/screening";
 
 function Lines({ list }: { list?: string[] | null }) {
   if (!list || !list.length) return <div className="muted">&mdash;</div>;
@@ -87,10 +86,11 @@ function AmlRecord({ v, factsOpen, recordLabel, threshold: th }: {
 }
 
 function ScreeningCard({ kind, data }: { kind: ScreenKind; data: Screening }) {
-  const [expanded, setExpanded] = useState(false);
   const sc = SCREENS[kind];
   const strong = data.strong_matches || [], other = data.other_matches || [];
-  const strongPager = usePagination(strong), otherPager = usePagination(other);
+  // every record, one to a page: the matches at or above the threshold first, then the lower-scoring ones
+  const records = [...strong.map((v) => ({ v, strong: true })), ...other.map((v) => ({ v, strong: false }))];
+  const pager = usePagination(records, 1);
   const t = `${data.threshold_percent ?? ""}%`;
   const sample = data.source === "mock" && (
     <div className="banner medium" style={{ marginBottom: 10 }}>
@@ -129,24 +129,13 @@ function ScreeningCard({ kind, data }: { kind: ScreenKind; data: Screening }) {
         <div className="stat"><b>{String(data.total_records ?? "")}</b><span>Records from vendor</span></div>
       </div>
       <GaugeLegend threshold={data.threshold_percent} />
-      <h3 className="aml-h">Matches at or above {t} ({strong.length})</h3>
-      {strong.length
-        ? <>
-          {strongPager.rows.map((v, i) => <AmlRecord key={strongPager.from + i} v={v} factsOpen recordLabel={sc.recordLabel} threshold={data.threshold_percent} />)}
-          <Pagination pager={strongPager} noun="records" />
-        </>
-        : <div className="empty">No record reached the {t} threshold.</div>}
-      {other.length > 0 && (
-        <>
-          <button className="aml-more" onClick={() => setExpanded((x) => !x)}>
-            {expanded ? "Hide" : "Show"} {other.length} lower-scoring record{plural(other.length)}
-          </button>
-          {expanded && otherPager.rows.map((v, i) => (
-            <AmlRecord key={otherPager.from + i} v={v} factsOpen={false} recordLabel={sc.recordLabel} threshold={data.threshold_percent} />
-          ))}
-          {expanded && <Pagination pager={otherPager} noun="records" />}
-        </>
-      )}
+      {pager.rows.map((r) => (
+        <div key={pager.from}>
+          <h3 className="aml-h">{r.strong ? `Match at or above ${t}` : `Lower-scoring record (below ${t})`}</h3>
+          <AmlRecord v={r.v} factsOpen recordLabel={sc.recordLabel} threshold={data.threshold_percent} />
+        </div>
+      ))}
+      <Pagination pager={pager} noun="records" fixedSize />
       {rid}
     </div>
   );

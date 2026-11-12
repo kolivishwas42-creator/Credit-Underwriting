@@ -76,7 +76,11 @@ describe("the screen", () => {
     expect(Array.from(card.querySelectorAll(".cu-r-kpi")).map((k) => k.textContent?.replace(/\d+/, ""))).toEqual(["Rules", "Passed", "Review", "Failed"]);
     const figures = screen.getByRole("region", { name: "Calculations" });
     expect(within(figures).getByText("Key figures")).toBeInTheDocument();
-    const row = screen.getByText("Shared with APP-TEST-0002", { selector: ".cu-r-rule-text span" }).closest(".cu-r-rule")!;
+    // a rule is collapsed to its name: the message shows when it is clicked
+    const row = screen.getByText("Mobile shared", { selector: ".cu-r-rule-text b" }).closest(".cu-r-rule")!;
+    expect(within(row as HTMLElement).queryByText("Shared with APP-TEST-0002")).toBeNull();
+    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: /Mobile shared/ }));
+    expect(within(row as HTMLElement).getByText("Shared with APP-TEST-0002")).toBeInTheDocument();
     expect(row).toHaveClass("is-fail");
     expect(within(row as HTMLElement).getByText("Triggered")).toBeInTheDocument();
     expect(within(row as HTMLElement).getByText("High")).toBeInTheDocument();
@@ -84,10 +88,10 @@ describe("the screen", () => {
       .toEqual({ application_number: "APP-TEST-0001", run_aml: true, run_pep: true });
   });
 
-  it("shows the AML comparison, the lower-scoring records on demand and the PEP error", async () => {
+  it("shows the AML comparison one record per page and the PEP error", async () => {
     await evaluate();
     const amlTab = await screen.findByRole("tab", { name: /AML screening/ });
-    expect(within(amlTab).getByText("1")).toHaveClass("count");
+    expect(within(amlTab).getByText("1")).toHaveClass("cu-r-tab-count");
     fireEvent.click(amlTab);
     const pane = document.getElementById("tab-aml")!;
     expect(within(pane).getByText("POSSIBLE MATCH")).toBeInTheDocument();
@@ -95,11 +99,14 @@ describe("the screen", () => {
     expect(within(pane).getByRole("img", { name: "Match score 85% (threshold 70%)" })).toBeInTheDocument();
     expect(within(pane).getAllByRole("link").map((a) => a.textContent)).toEqual(["example.org"]);
     expect(within(pane).queryAllByText("Sample Person C")).toHaveLength(0);
-    fireEvent.click(within(pane).getByRole("button", { name: "Show 2 lower-scoring records" }));
+    // one record to a page: the lower-scoring records follow on the next pages
+    expect(within(pane).getByText("1–1 of 3 records")).toBeInTheDocument();
+    fireEvent.click(within(pane).getByRole("button", { name: "Next page" }));
+    fireEvent.click(within(pane).getByRole("button", { name: "Next page" }));
     expect(within(pane).getAllByText("Sample Person C").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("tab", { name: /PEP check/ }));
     fireEvent.click(screen.getByRole("tab", { name: /AML screening/ }));
-    expect(within(pane).getByRole("button", { name: "Hide 2 lower-scoring records" })).toBeInTheDocument();
+    expect(within(pane).getByText("3–3 of 3 records")).toBeInTheDocument();       // the page survives a tab switch
     expect(document.getElementById("tab-pep")).toHaveTextContent("PEP vendor timed out");
   });
 
@@ -136,9 +143,9 @@ describe("the logic", () => {
     const page = toResultPage(evaluation);
     expect(page.basic.title).toBe("APP-TEST-0001");
     expect(page.basic.decision).toEqual({ label: "HIGH risk", tone: "fail" });
-    expect(page.basic.kpis!.map((k) => k.value)).toEqual([3, 1, 1, 2]);
+    expect(page.basic.kpis!.map((k) => k.value)).toEqual([2, 1, 1, 2]);         // rules run: the enabled ones only
     expect(page.rules!.rules.map((r) => [r.id, r.outcome, r.outcomeLabel])).toEqual([
-      ["FR-001", "fail", "Triggered"], ["FR-003", "pass", "Passed"], ["FR-002", "na", "Disabled"], ["R9", "na", "Skipped"],
+      ["FR-001", "fail", "Triggered"], ["FR-003", "pass", "Passed"], ["R9", "na", "Skipped"],      // the disabled FR-002 is not listed
     ]);
     expect(page.summary!.points).toEqual([
       "One high severity rule triggered.", "AML screening: 1 record at or above 70%.",

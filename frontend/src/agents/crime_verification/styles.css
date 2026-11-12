@@ -17,7 +17,7 @@
   --shadow: 0 1px 2px rgba(23, 19, 43, .05), 0 8px 24px -12px rgba(91, 61, 245, .18);
   --shadow-lg: 0 30px 60px -20px rgba(40, 20, 120, .35);
   --radius: 16px; --radius-sm: 10px;
-  --font: "Plus Jakarta Sans", "Inter", "Segoe UI", system-ui, sans-serif;
+  --font: "Lexend", "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   color-scheme: light;
 }
@@ -104,7 +104,7 @@ a { color: var(--brand); }
 .hero h1 { color: #fff; }
 .hero p { color: rgba(255, 255, 255, .85); margin-top: 4px; }
 .hero .mono { color: #fff; }
-.hero-kicker { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+.hero-kicker { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
   background: rgba(255, 255, 255, .18); border: 1px solid rgba(255, 255, 255, .3); padding: 3px 10px; border-radius: 999px; margin-bottom: 8px; }
 .hero .who { display: flex; gap: 16px; align-items: center; }
 .avatar { width: 46px; height: 46px; border-radius: 50%; background: var(--brand-soft); color: var(--brand-ink); display: grid;
@@ -115,7 +115,7 @@ a { color: var(--brand); }
 .header-stats { display: flex; flex-wrap: wrap; gap: 10px; margin: 0; }
 .header-stats div { background: rgba(255, 255, 255, .14); border: 1px solid rgba(255, 255, 255, .24); border-radius: 14px; padding: 9px 14px;
   backdrop-filter: blur(6px); min-width: 120px; }
-.header-stats dt { font-size: 11.5px; color: rgba(255, 255, 255, .75); }
+.header-stats dt { font-size: 12px; color: rgba(255, 255, 255, .75); }
 .header-stats dd { margin: 2px 0 0; font-weight: 700; font-size: 15px; }
 .hero .stepper { grid-column: 1 / -1; }
 .hero-dash { grid-template-columns: 1fr auto; padding: 28px 30px; }
@@ -148,7 +148,7 @@ a { color: var(--brand); }
 .card-sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
 .card-actions { display: flex; gap: 8px; align-items: center; }
 .card-body { padding: 18px 20px; }
-.card-title { font-size: 11.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); font-weight: 700; margin-bottom: 12px; }
+.card-title { font-size: 12px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); font-weight: 700; margin-bottom: 12px; }
 
 .btn { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 40px; padding: 0 16px;
   border-radius: 12px; border: 1px solid transparent; font-weight: 700; cursor: pointer; white-space: nowrap;
@@ -213,7 +213,7 @@ textarea.input { height: auto; padding: 10px 13px; resize: vertical; min-height:
 /* ---------------------------------------------------------------- tables */
 .table-wrap { overflow-x: auto; margin: -18px -20px; }
 .table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-.table th { text-align: left; font-size: 11.5px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em;
+.table th { text-align: left; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em;
   background: var(--surface-2); padding: 11px 18px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .table td { padding: 13px 18px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .table tbody tr { transition: background .15s; }
@@ -285,7 +285,7 @@ textarea.input { height: auto; padding: 10px 13px; resize: vertical; min-height:
 .ring-high-risk, .ring-very-high-risk, .ring-failed { box-shadow: 0 0 0 3px var(--r5); color: var(--bad); }
 .ring-processing, .ring-initiated { box-shadow: 0 0 0 3px var(--info); color: var(--info); animation: beacon-ring 1.6s infinite; }
 @keyframes beacon-ring { 50% { box-shadow: 0 0 0 6px var(--info-soft); } }
-.subject-role { font-size: 11.5px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.subject-role { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .subject-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .subject-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
@@ -295,7 +295,7 @@ textarea.input { height: auto; padding: 10px 13px; resize: vertical; min-height:
 .field-label { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 13px; font-weight: 700; color: var(--ink-2); }
 .field-label label { white-space: nowrap; }
 .req { color: var(--bad); }
-.source { font-size: 10.5px; font-weight: 700; color: var(--brand-ink); background: var(--brand-soft); border-radius: 999px; padding: 0 8px;
+.source { font-size: 12px; font-weight: 700; color: var(--brand-ink); background: var(--brand-soft); border-radius: 999px; padding: 0 8px;
   line-height: 19px; white-space: nowrap; }
 .source.edited { color: var(--warn); background: var(--warn-soft); }
 .field-error { color: var(--bad); font-size: 12.5px; display: flex; gap: 4px; align-items: center; animation: pop .2s ease-out; }
@@ -330,7 +330,7 @@ textarea.input { height: auto; padding: 10px 13px; resize: vertical; min-height:
 .arc-no-risk .gauge-arc { stroke: var(--r1); } .arc-low-risk .gauge-arc { stroke: var(--r2); }
 .arc-average-risk .gauge-arc { stroke: var(--r3); } .arc-high-risk .gauge-arc { stroke: var(--r4); }
 .arc-very-high-risk .gauge-arc { stroke: var(--r5); }
-.gauge-word { fill: #fff; font-size: 11.5px; font-weight: 800; letter-spacing: .02em; pointer-events: none; }
+.gauge-word { fill: #fff; font-size: 12px; font-weight: 800; letter-spacing: .02em; pointer-events: none; }
 .gauge-band:not(.is-on) .gauge-word { font-weight: 700; }
 .gauge-needle { transform-box: view-box; transform-origin: 130px 128px; transform: rotate(var(--angle)); fill: var(--ink);
   animation: swing 1.2s cubic-bezier(.3, 1.5, .5, 1); }

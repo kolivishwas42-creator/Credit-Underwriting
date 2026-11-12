@@ -156,7 +156,7 @@ function Concerns({ items, onRule }: { items: RuleRow[]; onRule?: (id: string) =
         : (
           <ul className="cu-r-concerns">
             {shown.map((r) => (
-              <li key={r.id} className={`is-${r.outcome}`}>
+              <li key={`${r.id}|${r.name}`} className={`is-${r.outcome}`}>
                 <button type="button" className="cu-r-side-btn" disabled={!onRule} onClick={() => onRule?.(r.id)}>
                   <b>{r.name}{r.outcome === "review" && <em>review</em>}</b>
                   {r.detail && <span>{r.detail}</span>}
@@ -184,7 +184,7 @@ function Strengths({ items, onRule }: { items: RuleRow[]; onRule?: (id: string) 
       {items.length === 0
         ? <div className="cu-r-side-empty">Nothing passed yet.</div>
         : <ul className="cu-r-chips">{shown.map((r) => (
-          <li key={r.id}><button type="button" className="cu-r-chip-btn" disabled={!onRule} onClick={() => onRule?.(r.id)}
+          <li key={`${r.id}|${r.name}`}><button type="button" className="cu-r-chip-btn" disabled={!onRule} onClick={() => onRule?.(r.id)}
             title={typeof r.detail === "string" ? r.detail : r.name}><Icon name="check" />{r.name}</button></li>))}</ul>}
       {items.length > CHIPS_SHOWN && (
         <button type="button" className="cu-r-more" onClick={() => setAll((a) => !a)} aria-expanded={all}>
@@ -356,7 +356,10 @@ function RuleCard({ rule, focused }: { rule: RuleRow; focused?: boolean }) {
   const pair = comparePair(rule.values);
   const rest = (rule.values ?? []).filter((v) => !pair || (v !== pair[0] && v !== pair[1]));
   const table = rule.table?.rows.length ? rule.table : undefined;
-  const more = rest.some((v) => filled(v.value)) || Boolean(table);
+  const cmp = rule.compare?.length ? rule.compare : undefined;
+  const recs = rule.records?.length ? rule.records : undefined;
+  const hidden = Boolean(rule.detailOnOpen && rule.detail);       // the message waits behind the click
+  const more = rest.some((v) => filled(v.value)) || Boolean(table) || Boolean(cmp) || Boolean(recs) || hidden;
   return (
     <div className={`cu-r-rule is-${rule.outcome}${open ? " is-open" : ""}${focused ? " is-focus" : ""}`} data-rule-id={rule.id}>
       <button type="button" className="cu-r-rule-row" onClick={() => more && setOpen((o) => !o)}
@@ -370,7 +373,7 @@ function RuleCard({ rule, focused }: { rule: RuleRow; focused?: boolean }) {
         </span>
         <span className="cu-r-rule-text">
           <b>{rule.name}</b>
-          {rule.detail && !(pair && repeatsPair(rule.detail, pair)) && <span>{rule.detail}</span>}
+          {rule.detail && !hidden && !(pair && repeatsPair(rule.detail, pair)) && <span>{rule.detail}</span>}
         </span>
         {pair && (
           <span className="cu-r-compare">
@@ -383,8 +386,31 @@ function RuleCard({ rule, focused }: { rule: RuleRow; focused?: boolean }) {
             ))}
           </span>
         )}
-        {more && <span className="cu-r-caret">{open ? "Hide values" : "Show values"}<Icon name="chevron" /></span>}
+        {more && <span className="cu-r-caret">{open ? (hidden ? "Hide details" : "Hide values") : (hidden ? "Show details" : "Show values")}<Icon name="chevron" /></span>}
       </button>
+      {open && hidden && <p className="cu-r-rule-msg">{rule.detail}</p>}
+      {open && recs && (
+        <div className="cu-r-recs">
+          {recs.map((rec, ri) => (
+            <dl key={ri} className="cu-r-rec">
+              {rec.map((l) => <Fragment key={l.label}><dt>{l.label}</dt><dd>{l.value}</dd></Fragment>)}
+            </dl>
+          ))}
+        </div>
+      )}
+      {open && cmp && (
+        <div className="cu-r-cmp-set">
+          {cmp.map((c, i) => (
+            <div key={i} className="cu-r-cmp-line">
+              <span className="cu-r-cmp-field">{c.field}</span>
+              <span className="cu-r-compare">
+                <span className={`cu-r-compare-cell is-${rule.outcome}`}><small>{rule.compareLabels?.[0] ?? "This application"}</small><b>{c.left || "—"}</b></span>
+                <span className="cu-r-compare-cell"><small>{rule.compareLabels?.[1] ?? "Compared with"}</small><b>{c.right || "—"}</b></span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       {open && table && (
         <table className="cu-r-rule-table">
           <thead><tr>{table.columns.map((c, i) => <th key={i} scope="col">{c}</th>)}</tr></thead>
@@ -447,7 +473,7 @@ export function RulesPanel({ rules, pageSize = RULES_PER_PAGE, empty = "No rules
         )}
       </div>
       {pager.rows.length
-        ? <div className="cu-r-rule-grid">{pager.rows.map((r) => <RuleCard key={r.id} rule={r} focused={lit === r.id} />)}</div>
+        ? <div className="cu-r-rule-grid">{pager.rows.map((r) => <RuleCard key={`${r.id}|${r.name}`} rule={r} focused={lit === r.id} />)}</div>
         : <div className="cu-r-empty">{empty}</div>}
       <Pagination pager={pager} noun="rules" fixedSize />
     </div>
@@ -671,7 +697,7 @@ function hasChildren(node: ReactNode): boolean {
    "sab ek me naa dikhe": under the header ONE section at a time -- Overview (the AI summary) · Rules · Calculations ·
    More details -- on a pill rail with counts and a red mark for what failed. Every pane stays mounted (only put away),
    so a filter or an opened rule survives a switch. */
-type Section = "overview" | "rules" | "calcs" | "details";
+type Section = string;     // "overview" | "rules" | "details" | an agent's own extra tab id
 interface Tab { id: Section; label: string; icon: string; count?: number; alert?: number }
 
 function SectionRail({ tabs, active, onPick, stuck, basic, onTop }: {
@@ -707,7 +733,7 @@ function SectionRail({ tabs, active, onPick, stuck, basic, onTop }: {
   );
 }
 
-export function ResultPage({ basic, summary, rules, calculations, actions, children, detailsOpen }: ResultPageProps) {
+export function ResultPage({ basic, summary, rules, calculations, actions, children, detailsOpen, extraTabs = [] }: ResultPageProps) {
   const ruleRows = rules?.rules ?? [];
   const calcRows = withOverflow(calculations?.rows ?? [], basic, ruleRows.length > 0);
   const hasCalcs = calcRows.length > 0;
@@ -722,6 +748,8 @@ export function ResultPage({ basic, summary, rules, calculations, actions, child
     tabs.push({ id: "rules", label: rules && hasCalcs ? "Rules & Calculations" : rules ? "Rules" : "Calculations",
       icon: "list", count: rules ? ruleRows.length : calcRows.length, alert: failed });
   }
+  // the agent's own tabs sit in the same rail, after Rules (e.g. Fraud: AML screening, PEP check ...)
+  for (const x of extraTabs) tabs.push({ id: x.id, label: x.label, icon: x.icon ?? "grid", count: x.count });
   if (extra && !detailsOpen) tabs.push({ id: "details", label: "More details", icon: "grid" });
   const [picked, setPicked] = useState<Section | null>(null);
   const active: Section = picked && tabs.some((t) => t.id === picked) ? picked : (tabs[0]?.id ?? "overview");
@@ -773,6 +801,10 @@ export function ResultPage({ basic, summary, rules, calculations, actions, child
           </div>
         </div>
       )}
+      {extraTabs.map((x) => (
+        // every extra pane stays mounted (hidden when not chosen), so an expanded list survives a tab switch
+        <div key={x.id} className={pane(x.id)} {...paneProps(x.id)}>{x.content}</div>
+      ))}
       {extra && !detailsOpen && (
         <div className={pane("details")} {...paneProps("details")}>
           <div className="cu-r-card cu-r-details is-open" role="region" aria-label="More details">

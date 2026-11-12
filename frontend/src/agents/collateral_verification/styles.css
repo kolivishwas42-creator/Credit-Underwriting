@@ -183,7 +183,7 @@ h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; co
   font-size: 12px;
   line-height: 16px;
   font-weight: 600;
-  letter-spacing: 0.09em;
+  letter-spacing: .09em;
   text-transform: uppercase;
   color: var(--text-secondary);
   margin: 0 0 8px;
