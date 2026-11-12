@@ -671,7 +671,7 @@ def test_every_text_key_the_screen_uses_is_in_the_config():
     from pathlib import Path
 
     words = _screen_words()
-    src = Path(__file__).resolve().parents[4] / "frontend" / "crime_verification" / "src"   # frontend/ beside backend/
+    src = Path(__file__).resolve().parents[4] / "frontend" / "src" / "agents" / "crime_verification"   # the console: frontend/src/agents/<agent>
     keys = set()
     for f in [*src.rglob("*.tsx"), *src.rglob("*.ts")]:
         if "test" in f.parts:
