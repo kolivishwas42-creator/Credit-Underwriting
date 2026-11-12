@@ -739,3 +739,41 @@
 :root .cu-ui.cu-r .cu-r-compare-cell.is-fail b { color: #991B1B; }
 :root .cu-ui.cu-r .cu-r-compare-cell.is-review b { color: #92400E; }
 :root .cu-ui.cu-r .cu-r-compare-cell.is-pass b { color: #166534; }
+/* ---------- action buttons (owner 2026-11-12: the three solid colours clashed) ----------
+   one strong primary (the sapphire gradient of the active tab); Hold and Decline as outlined buttons that fill on hover */
+:root .cu-ui.cu-r .cu-r-btn { height: 40px; padding: 0 18px; border-radius: 12px; font-weight: 600; transition: background .15s, color .15s, box-shadow .15s, border-color .15s; }
+:root .cu-ui.cu-r .cu-r-btn.is-primary { border: 1px solid transparent; color: #fff;
+  background: linear-gradient(120deg, #1E1B4B 0%, #312E81 50%, #3B57D6 100%); box-shadow: 0 8px 18px -10px rgba(37, 61, 163, .85); }
+:root .cu-ui.cu-r .cu-r-btn.is-primary:hover:not(:disabled) { background: linear-gradient(120deg, #26236A 0%, #3B3A9B 50%, #4C6BF2 100%);
+  box-shadow: 0 10px 22px -10px rgba(37, 61, 163, .95); }
+:root .cu-ui.cu-r .cu-r-btn.is-warning { border: 1.5px solid #B8C8FF; background: #fff; color: #253DA3; }
+:root .cu-ui.cu-r .cu-r-btn.is-warning:hover:not(:disabled) { border-color: #3B57D6; background: #EEF3FF; color: #1E1B4B; }
+:root .cu-ui.cu-r .cu-r-btn.is-danger { border: 1.5px solid #FCA5A5; background: #fff; color: #B91C1C; }
+:root .cu-ui.cu-r .cu-r-btn.is-danger:hover:not(:disabled) { border-color: #DC2626; background: #DC2626; color: #fff; }
+:root .cu-ui.cu-r .cu-r-btn.is-secondary { border: 1.5px solid #E2E8F0; background: #fff; color: #334155; }
+:root .cu-ui.cu-r .cu-r-btn.is-secondary:hover:not(:disabled) { border-color: #B8C8FF; background: #F5F8FF; color: #253DA3; }
+:root .cu-ui.cu-r .cu-r-btn.is-ghost { border: 1px solid transparent; color: #334155; }
+:root .cu-ui.cu-r .cu-r-btn.is-ghost:hover:not(:disabled) { background: #F5F8FF; color: #253DA3; }
+:root .cu-ui.cu-r .cu-r-btn:disabled { opacity: .55; box-shadow: none; }
+@media (max-width: 640px) { :root .cu-ui.cu-r .cu-r-btn { height: 40px; padding: 0 10px; border-radius: 10px; } }
+/* the three in soft shades (owner 2026-11-12): Hold amber, Decline red, the main action sapphire */
+:root .cu-ui.cu-r .cu-r-btn.is-warning { border: 1px solid #FCD34D; background: #FEF3C7; color: #92400E; }
+:root .cu-ui.cu-r .cu-r-btn.is-warning:hover:not(:disabled) { border-color: #F59E0B; background: #FDE68A; color: #78350F; }
+:root .cu-ui.cu-r .cu-r-btn.is-danger { border: 1px solid #FCA5A5; background: #FEE2E2; color: #B91C1C; }
+:root .cu-ui.cu-r .cu-r-btn.is-danger:hover:not(:disabled) { border-color: #DC2626; background: #DC2626; color: #fff; }
+/* tablet (and a laptop with a side menu): the summary points in one column, never squeezed beside each other */
+@media (max-width: 1199px) {
+  :root .cu-ui.cu-r .cu-r-points { grid-template-columns: minmax(0, 1fr); }
+}
+/* the stuck rail has no room for the case badge below 1200px (it ran into the first tab) */
+@media (max-width: 1199px) { :root .cu-ui.cu-r .cu-r-rail-case { display: none; } }
+
+/* STRENGTHS with proof (owner 2026-11-12): the same small cards as Concerns but GREEN -- a strength never shows red */
+:root .cu-ui.cu-r .cu-r-concerns li.is-pass { background: #F8FAFC; box-shadow: inset 3px 0 0 #16A34A, inset 0 0 0 1px #EEF2F7; }
+:root .cu-ui.cu-r .cu-r-concerns li.is-pass:has(.cu-r-side-btn:not(:disabled)):hover { background: #F0FDF4; }
+/* the proof line (values compared): full-colour text, tabular figures, one line above the reason */
+:root .cu-ui.cu-r .cu-r-side li span.cu-r-proof { color: var(--text-primary, #0F172A); font-weight: 600;
+  font-variant-numeric: tabular-nums; -webkit-line-clamp: 1; }
+:root .cu-ui.cu-r .cu-r-concerns li.is-fail span.cu-r-proof { color: #B91C1C; }
+:root .cu-ui.cu-r .cu-r-concerns li.is-review span.cu-r-proof { color: #92400E; }
+:root .cu-ui.cu-r .cu-r-concerns li.is-pass span.cu-r-proof { color: #166534; }

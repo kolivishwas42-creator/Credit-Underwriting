@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import type { RuleResult } from "../types/api";
 import { Icon } from "./Icon";
+import { plain } from "../utils/resultView";
 
 /**
  * Only the checks that FOUND A PROBLEM (the red ones), in a popup the moment the result is in, so they are not
@@ -34,23 +35,25 @@ export function FailPopup({ rules, onShow, onClose }:
                 <div className="popup-row">
                   <div>
                     <strong>{r.rule_name}</strong>
-                    <p>{r.reason}</p>
+                    <p>{plain(r.reason || "")}</p>
                   </div>
                   <button className="btn btn-ghost" onClick={() => onShow(r.rule_id)}>Show</button>
                 </div>
-                {differs.length > 0 && (
-                  <table className="compare popup-compare">
-                    <tbody>
-                      {differs.map((c, i) => (
-                        <tr key={i}>
-                          <td>{c.left_label}</td>
-                          <td>{c.left ?? "—"}</td>
-                          <td>{c.right ?? "—"}{c.note && <div className="muted small">{c.note}</div>}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
+                {/* EACH DIFFERENCE AS TWO NAMED BOXES (owner 2026-11-12): the old 3-column table squeezed long text
+                    into narrow cells and never named the second value (right_label was not shown) */}
+                {differs.map((c, i) => (
+                  <div className="popup-diff" key={i}>
+                    <div className="popup-diff-cell">
+                      <small>{c.left_label}</small>
+                      <b>{c.left ?? "—"}</b>
+                    </div>
+                    <div className="popup-diff-cell is-bad">
+                      <small>{c.right_label}</small>
+                      <b>{c.right ?? "—"}</b>
+                    </div>
+                    {c.note && <p className="popup-diff-note">{plain(c.note)}</p>}
+                  </div>
+                ))}
               </li>
             );
           })}

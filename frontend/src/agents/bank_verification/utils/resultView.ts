@@ -5,14 +5,24 @@ import type { ActionItem, CalcRow, Fact, ResultPageProps, RuleRow, Tone } from "
 import { statusWord } from "../components/ui";
 import type { AppConfig, CaseDetail, Comparison, PlainSummary, RuleResult, SourceData } from "../types/api";
 import { day, rupees } from "./format";
+import { PLAIN_WORDS, ZERO_CLAUSE } from "../config/summaryWording";
 
 export const PRODUCTS: Record<string, string> = { PERSONAL_LOAN: "Personal Loan", LAP: "LAP", HOME_LOAN: "Home Loan" };
 export const CLOSED = ["POSITIVE", "NEGATIVE", "WAIVED"];
 
+/** A point in plain words: a zero-count clause dropped, "need a person" as "need a manual review" (config). */
+export function plain(point: string): string {
+  let s = point.replace(ZERO_CLAUSE, "");
+  for (const [from, to] of PLAIN_WORDS) s = s.replace(from, to);
+  // the clause before a dropped last clause becomes the last one: "A, B." -> "A and B."
+  if (s !== point && !/\band\b/.test(s)) s = s.replace(/,\s*(\d+ checks? [^,]*\.?)$/, " and $1");
+  return s.replace(/\s+([,.])/g, "$1").replace(/\s{2,}/g, " ").trim();
+}
+
 /** The summary as points: one per line (numbered points from the server), else one per sentence. */
 export const points = (text: string) =>
   (text.includes("\n") ? text.split("\n") : text.split(/(?<=[.!?])\s+/))
-    .map((s) => s.trim().replace(/^(\d+[.)]|[-•*])\s+/, ""))
+    .map((s) => plain(s.trim().replace(/^(\d+[.)]|[-•*])\s+/, "")))
     .filter(Boolean);
 
 /**
@@ -161,8 +171,9 @@ export function toResultPage(detail: CaseDetail, config: AppConfig, s: SummarySt
     { label: "Case ID", value: c.case_id, mono: true },
     { label: "Applicant ID", value: c.application_ref, mono: true },
     { label: "Loan amount", value: rupees(c.loan_amount) },
-    { label: "Stage", value: c.stage },
+    // AA received or not is one of the four facts the header always shows (owner 2026-11-12)
     { label: "AA data", value: c.mode === "AA_SUCCESS" ? "Received" : "Not received" },
+    { label: "Stage", value: c.stage },
   ];
   if (form?.bank_name) facts.push({ label: "Bank", value: form.bank_name });
   if (form?.account_number) facts.push({ label: "Account", value: form.account_number, mono: true });

@@ -369,3 +369,14 @@ input:disabled, select:disabled, textarea:disabled { color: var(--muted); cursor
 /* primary buttons in the console's colour (owner 2026-11-12): not black */
 .btn.btn-primary { background: #253DA3 !important; color: #fff !important; box-shadow: none; }
 .btn.btn-primary:hover:not(:disabled) { background: #314BBF !important; }
+
+/* the problem popup: each difference as two named boxes, text wrapping freely (owner 2026-11-12) */
+.popup-diff { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.popup-diff-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 8px 12px; border-radius: 10px;
+  background: #F8FAFC; box-shadow: inset 0 0 0 1px #E2E8F0; }
+.popup-diff-cell small { color: #64748B; font-size: 11.5px; font-weight: 600; letter-spacing: .02em; }
+.popup-diff-cell b { color: #0F172A; font-size: 14px; font-weight: 700; line-height: 20px; overflow-wrap: anywhere; white-space: normal; }
+.popup-diff-cell.is-bad { background: #FEF2F2; box-shadow: inset 0 0 0 1px #FECACA; }
+.popup-diff-cell.is-bad b { color: #B91C1C; }
+.popup-diff-note { grid-column: 1 / -1; margin: 0; color: #475569; font-size: 13px; line-height: 19px; overflow-wrap: anywhere; }
+@media (max-width: 560px) { .popup-diff { grid-template-columns: minmax(0, 1fr); } }

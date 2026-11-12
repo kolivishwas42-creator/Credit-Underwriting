@@ -177,3 +177,23 @@ h1, h2 { font-family: var(--font-display); text-wrap: balance; }
 .toast { background: var(--cu-action, #172554); color: var(--on-ink); border-radius: 8px; box-shadow: var(--e-lg); }
 @media (max-width: 960px) { .drawer { border-radius: 0; } }
 @media (prefers-reduced-motion: reduce) { * { transition-duration: .01ms !important; animation-duration: .01ms !important; } }
+
+/* ---------- FRESH + CLEAR (owner 2026-11-12) ----------
+   the welcome reads as a calm hero: a soft brand wash behind it, the eyebrow as a pill, and each legend card tinted in
+   its own status colour with a dot, so Critical / To collect / Verified are told apart at a glance. Tokens only, so
+   dark mode follows. Fonts unchanged (DESIGN.md). */
+.main > .welcome { background: radial-gradient(900px 420px at 15% 10%, var(--brand-tint), transparent 70%), var(--bg); }
+.welcome .eyebrow { align-self: flex-start; padding: 5px 12px; border-radius: 999px; background: var(--brand-soft);
+  color: var(--brand-ink); letter-spacing: .08em; }
+.welcome h1 { color: var(--text); }
+.legend-cards { gap: 14px; margin-top: 14px; }
+.lc { border-top-width: 1px; border-radius: 14px; padding: 16px 16px 16px 18px; gap: 6px; position: relative;
+  transition: transform .15s ease, box-shadow .15s ease; }
+.lc:hover { transform: translateY(-2px); box-shadow: var(--e-lg); }
+.lc b { display: flex; align-items: center; gap: 8px; font-size: 14.5px; }
+.lc b::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: var(--na); flex: none; }
+.lc.bad  { background: var(--bad-soft);  border-color: var(--bad-line); }  .lc.bad b  { color: var(--bad); }  .lc.bad b::before  { background: var(--bad-fill); }
+.lc.warn { background: var(--warn-soft); border-color: var(--warn-line); } .lc.warn b { color: var(--warn); } .lc.warn b::before { background: var(--warn-fill); }
+.lc.ok   { background: var(--ok-soft);   border-color: var(--ok-line); }   .lc.ok b   { color: var(--ok); }   .lc.ok b::before   { background: var(--ok-fill); }
+.lc span { color: var(--text-2); }
+@media (prefers-reduced-motion: reduce) { .lc { transition: none; } .lc:hover { transform: none; } }

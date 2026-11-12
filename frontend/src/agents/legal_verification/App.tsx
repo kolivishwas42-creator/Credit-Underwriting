@@ -5,7 +5,7 @@ import { IconArrowRight, IconCheck, IconFileDescription, IconGavel, IconListChec
 import { useEffect, useState, type FormEvent } from "react";
 import { SidebarToggle } from "../../shared/components";
 import { Loader } from "./components/Loader";
-import { Typewriter } from "./components/Typewriter";
+import { AgentTitle, Typewriter } from "../../shared/components/Typewriter";   // the common ones (owner 2026-11-12)
 import { CasePage } from "./pages/CasePage";
 import { WorklistPage } from "./pages/WorklistPage";
 import { ApiError, api } from "./services/api";
@@ -66,14 +66,14 @@ export default function App() {
       <AppShell.Header className="top-header" hiddenFrom="md">
         <Group h="100%" px="md" gap="sm">
           <Burger opened={opened} onClick={toggle} size="sm" color="white" aria-label={config ? t("nav.label") : undefined} />
-          <Text fw={800} c="white" size="sm">{config ? <Typewriter text={t("brand.title")} /> : ""}</Text>
+          {config ? <AgentTitle id="legal_verification" /> : ""}
         </Group>
       </AppShell.Header>
 
       <AppShell.Navbar className="side" p="md">
         <Group gap="sm" wrap="nowrap" mb="lg" visibleFrom="md">
           <ThemeIcon size={40} radius="md" className="brand-mark"><IconScale size={22} /></ThemeIcon>
-          <div><Text fw={800} c="white" lh={1.15} className="brand-title">{config ? <Typewriter text={t("brand.title")} /> : ""}</Text>
+          <div><Text fw={800} c="white" lh={1.15} className="brand-title">{config ? <Typewriter text={t("brand.title")} className="typewriter" /> : ""}</Text>
             <Text size="xs" className="rail-dim" lh={1.2}>{config ? t("brand.subtitle") : ""}</Text></div>
         </Group>
 

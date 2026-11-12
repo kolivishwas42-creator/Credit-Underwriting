@@ -476,12 +476,22 @@ def test_aa_received_waive_needs_a_reason_and_closes_the_case(bv_client):
     history = bv_client.get(f"{API}/cases/BV-2026-001/history", headers=CPA).json()["events"]
     waived = next(e for e in history if e["event"] == "BANK_VERIFICATION_WAIVED")
     assert "AA data received from the bank" in json.dumps(waived["detail"])
-    # a waived case is closed: no run, no retrigger, no second waiver, no agency decision
+    # a waived case takes no new run, no second waiver, no agency decision ...
     for r in (bv_client.post(f"{API}/process", json={"case_id": "BV-2026-001", "mode": "AA_SUCCESS"}, headers=CPA),
-              bv_client.post(f"{API}/cases/BV-2026-001/retrigger", json={}, headers=CPA),
               bv_client.post(f"{API}/cases/BV-2026-001/waive", json={"reason": "again"}, headers=CPA),
               _finalize(bv_client, "BV-2026-001", _agency_input("CLEAN_AA_SUCCESS"))):
         assert r.status_code == 409, r.text
+
+
+def test_retrigger_after_waive_withdraws_the_waiver_and_runs_the_checks_again(bv_client):
+    # ... but it can be RETRIGGERED (owner 2026-11-12): the waiver is withdrawn, audited, and the checks run again
+    bv_client.post(f"{API}/cases/BV-2026-001/waive", json={"reason": "AA data received from the bank"}, headers=CPA)
+    again = bv_client.post(f"{API}/cases/BV-2026-001/retrigger", json={}, headers=CPA)
+    assert again.status_code == 200, again.text
+    case = bv_client.get(f"{API}/cases/BV-2026-001", headers=CPA).json()["case"]
+    assert case["status"] != "WAIVED"
+    history = bv_client.get(f"{API}/cases/BV-2026-001/history", headers=CPA).json()["events"]
+    assert any(e["event"] == "BANK_VERIFICATION_WAIVER_WITHDRAWN" for e in history)
 
 
 def test_waive_and_retrigger_are_for_aa_data_and_the_cpa_only(bv_client):
