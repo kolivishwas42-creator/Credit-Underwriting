@@ -45,7 +45,22 @@ function Wait-Api($name, $proc, $port, $log) {
 }
 
 # ---- checks before anything starts
-if (-not (Test-Path $python)) { throw "backend\.venv is missing: run start.ps1 once (it creates it), or create the venv and pip install -r requirements.txt" }
+if (-not (Test-Path $python)) {
+    # first run on this laptop: create backend\.venv and install the packages (a few minutes, once)
+    Write-Host "first run: creating backend\.venv and installing the packages (a few minutes, only once)..." -ForegroundColor Yellow
+    $py = $null
+    foreach ($try in @(@("py", "-3.12"), @("py", "-3.11"), @("python"))) {
+        try { & $try[0] @($try[1..9] + @("--version")) *> $null; if ($LASTEXITCODE -eq 0) { $py = $try; break } } catch { }
+    }
+    if (-not $py) { throw "Python 3.12 is not installed: install it from python.org (tick 'Add to PATH'), then run dev again." }
+    & $py[0] @($py[1..9] + @("-m", "venv", (Join-Path $backend ".venv")))
+    & $python -m pip install --upgrade pip
+    & $python -m pip install -r (Join-Path $backend "requirements.txt")
+    if ($LASTEXITCODE -ne 0) { throw "pip install failed - see the lines above." }
+}
+if (-not (Test-Path (Join-Path $backend ".env"))) {
+    throw "backend\.env is missing: copy it from the other laptop (it holds the database address), then run dev again."
+}
 # where is the LOS server: -LosDir, else a clone of the LOS repo next to this folder (git clone ... LOS-agent-anii-handover),
 # else the original laptop's folder. Its python: a .venv in the LOS folder, else in the repo root, else 3 levels up.
 $losCandidates = @()
