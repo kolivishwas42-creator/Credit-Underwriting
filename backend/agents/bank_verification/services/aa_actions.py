@@ -23,15 +23,16 @@ from agents.bank_verification.services.verification_service import ServiceError
 WAIVED = "WAIVED"
 
 
-def _aa_case(repo: Repository, case_id: str) -> dict[str, Any]:
-    """The case, open and with AA data -- or the reason it cannot take an AA action."""
+def _aa_case(repo: Repository, case_id: str, *, allow_waived: bool = False) -> dict[str, Any]:
+    """The case, open and with AA data -- or the reason it cannot take an AA action. `allow_waived`: a WAIVED case
+    may be retriggered (owner 2026-11-12); POSITIVE / NEGATIVE stay final."""
     verification_service.heal(repo, case_id)
     case = repo.case(case_id)
     if case is None or case.get("historical"):
         raise ServiceError(404, "CASE_NOT_FOUND", case_id=case_id)
     if case["status"] == verification_service.READING:
         raise ServiceError(409, "STATEMENT_BEING_READ")
-    if case["status"] in verification_service.FINAL:
+    if case["status"] in verification_service.FINAL and not (allow_waived and case["status"] == WAIVED):
         raise ServiceError(409, "CASE_FINALIZED", case_id=case_id, status=case["status"])
     if case.get("mode") != Mode.AA_SUCCESS.value or not repo.latest_source(case_id, "AA"):
         raise ServiceError(409, "AA_ONLY")
@@ -49,7 +50,13 @@ def waive(repo: Repository, case_id: str, reason: str, *, actor: str) -> dict[st
 
 
 def retrigger(repo: Repository, case_id: str, *, actor: str, entered: EnteredDetails | None = None) -> dict[str, Any]:
-    case = _aa_case(repo, case_id)
+    case = _aa_case(repo, case_id, allow_waived=True)
+    if case["status"] == WAIVED:
+        # RETRIGGER AFTER WAIVE (owner 2026-11-12): the waiver is withdrawn -- the case goes back to pending, who and
+        # when audited -- and the checks run again on the AA data
+        reopened = str(verification_service.words("case_status.seeded") or "PENDING_VERIFICATION")
+        repo.update_case(case_id, status=reopened)
+        repo.audit(case_id, actor, "BANK_VERIFICATION_WAIVER_WITHDRAWN", {"by": "retrigger"})
     on_file = bool(repo.documents(case_id, "STATEMENT"))
     request = ProcessRequest(case_id=case_id, mode=Mode.AA_SUCCESS, statement_source="ON_FILE" if on_file else "NONE",
                              entered=entered, agency_id=case.get("assigned_agency"))

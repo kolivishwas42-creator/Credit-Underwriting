@@ -26,7 +26,7 @@ export function Typewriter({ text, className }: { text: string; className?: stri
     }, delay);
     return () => window.clearTimeout(timer);
   }, [n, erasing, text, still]);
-  if (still) return <span className={`cu-tw is-still ${className ?? ""}`}>{text}</span>;
+  if (still) return <span className={`cu-tw is-still ${className ?? ""}`} aria-label={text}>{text}</span>;
   return (
     <span className={`cu-tw ${className ?? ""}`} aria-label={text} role="text">
       <span className="cu-tw-ghost" aria-hidden="true">{text}</span>

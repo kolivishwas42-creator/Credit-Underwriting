@@ -47,6 +47,18 @@ export const NEXT_STEP_STARTS = ["next step", "next action", "recommended action
 export const KEY_NUMBERS_MAX = 4;
 export const KEY_NUMBER_MAX_CHARS = 22;
 
+/** STRENGTHS (owner 2026-11-12: "strength me jo dikha rahe ho, woh useful hona chahiye"): a passed rule shows with
+ *  its proof -- the numbers it compared, else its reason line. Proof with numbers first, at most this many; a pass
+ *  with no proof (only "Passed") is counted under "more checks passed", not listed as a strength. */
+export const STRENGTHS_SHOWN = 4;
+/** A reason line that says nothing beyond the outcome itself (compared lower-case, trimmed, without the full stop).
+ *  Used by Strengths and by Concerns (owner 2026-11-12: "concerns me bhi aisa hi proof dikhao"). */
+export const ROUTINE_DETAIL = ["pass", "passed", "ok", "okay", "yes", "true", "matched", "match", "verified", "valid",
+  "clear", "no issues", "no issue", "nothing found", "not applicable", "n/a", "na", "-", "—", "within limit",
+  "fail", "failed", "no", "false", "not matched", "mismatch", "review", "review required", "refer", "needs review"];
+/** The line under the strengths for the passes not listed. */
+export const MORE_PASSED = (n: number) => `+${n} more ${n === 1 ? "check" : "checks"} passed`;
+
 /** Field names that reach a summary point ("acknowledgement_number") read as words; these stay in capitals. */
 export const UPPER_WORDS = ["pan", "gti", "itr", "emi", "foir", "ltv", "ifsc", "aa", "aml", "pep", "dpd", "cersai", "kyc", "los", "ay", "id"];
 
