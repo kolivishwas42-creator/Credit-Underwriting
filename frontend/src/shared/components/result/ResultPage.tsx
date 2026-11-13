@@ -8,6 +8,7 @@ import { createRoot } from "react-dom/client";
 import { usePagination } from "../../hooks/usePagination";
 import { Icon } from "../Icon";
 import { Pagination } from "../Pagination";
+import { applyCustomRules, useCustomRules } from "../../rules/customRules";
 import type {
   ActionItem, BasicCardProps, CalcProps, CalcRow, Kpi, ResultPageProps, RuleRow, RulesProps, SummaryProps, Tone,
 } from "./types";
@@ -795,9 +796,18 @@ function SectionRail({ tabs, active, onPick, stuck, basic, onTop }: {
   );
 }
 
-export function ResultPage({ basic, summary, rules, calculations, actions, children, detailsOpen, overview }: ResultPageProps) {
-  const ruleRows = rules?.rules ?? [];
-  const calcRows = withOverflow(calculations?.rows ?? [], basic, ruleRows.length > 0);
+export function ResultPage({ basic, summary, rules: rulesProp, calculations, actions, children, detailsOpen, overview }: ResultPageProps) {
+  const ownRules = rulesProp?.rules ?? [];
+  const calcRows = withOverflow(calculations?.rows ?? [], basic, ownRules.length > 0);
+  // CUSTOM RULES (owner 2026-11-13: "add rule sab ke liye"): the officer's own rules for this agent, on the values in
+  // Calculations, beside the agent's rules -- counted, ringed and listed like them
+  const host = useRef<HTMLDivElement>(null);
+  const [agentId, setAgentId] = useState<string | null>(null);
+  useEffect(() => { setAgentId(host.current?.closest(".agent-host")?.getAttribute("data-agent") ?? null); }, []);
+  const custom = useCustomRules(agentId);
+  const ruleRows = useMemo(() => [...ownRules, ...applyCustomRules(custom, calcRows)], [ownRules, custom, calcRows]);
+  // an agent with no rules list of its own still shows its custom rules
+  const rules = rulesProp ?? (ruleRows.length ? { rules: ruleRows } : undefined);
   const hasCalcs = calcRows.length > 0;
   const extra = hasChildren(children);
   const counts = ruleRows.length ? ruleCounts(ruleRows) : basic.kpis;
@@ -844,7 +854,7 @@ export function ResultPage({ basic, summary, rules, calculations, actions, child
     if (rail && rail.getBoundingClientRect().top < 0) rail.scrollIntoView?.({ behavior: "smooth", block: "start" });
   };
   return (
-    <div className={`cu-ui cu-r${tabbed ? " is-tabbed" : ""}`}>
+    <div className={`cu-ui cu-r${tabbed ? " is-tabbed" : ""}`} ref={host}>
       <div ref={head}><BasicCard {...basic} counts={counts} /></div>
       {tabbed && <SectionRail tabs={tabs} active={active} onPick={pick} stuck={stuck} basic={basic}
         onTop={() => head.current?.scrollIntoView({ behavior: "smooth", block: "start" })} />}
@@ -859,7 +869,7 @@ export function ResultPage({ basic, summary, rules, calculations, actions, child
         <div className={pane("rules")} {...paneProps("rules")}>
           <div className={`cu-r-split${rules && hasCalcs ? "" : " is-single"}`}>
             {hasCalcs && <CalcPanel {...(calculations ?? {})} rows={calcRows} fit={Boolean(rules)} />}
-            {rules && <RulesPanel {...rules} focus={focus} />}
+            {rules && <RulesPanel {...rules} rules={ruleRows} focus={focus} />}
           </div>
         </div>
       )}
