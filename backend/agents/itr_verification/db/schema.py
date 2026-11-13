@@ -70,11 +70,19 @@ CREATE INDEX verification_results_pan ON verification_results (pan_number);
 CREATE INDEX verification_results_created ON verification_results (created_at DESC);
 """
 
+# which application and which participant a run was for (nullable: runs made before, and by-fields runs, have none)
+_V4 = """
+ALTER TABLE verification_results ADD COLUMN IF NOT EXISTS application_number TEXT;
+ALTER TABLE verification_results ADD COLUMN IF NOT EXISTS participant_id BIGINT;
+CREATE INDEX IF NOT EXISTS verification_results_application ON verification_results (application_number);
+"""
+
 MIGRATIONS: list[tuple[str, str, str]] = [
     ("0001", "itr verification: rule_configs, system_settings, verification_results", _V1),
     ("0002", "agent_logs: WARNING and above application logs (shared, shared/db)", LOGS_MIGRATION[2]),
     ("0003", "api_responses: every API response of this agent (shared, shared/db/responses.py)",
      responses.MIGRATION[2]),
+    ("0004", "verification_results: application_number and participant_id of the run", _V4),
 ]
 
 __all__ = ["MIGRATIONS"]

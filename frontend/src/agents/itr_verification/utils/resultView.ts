@@ -174,6 +174,10 @@ export function toResultPage(report: VerificationResponse & { run_id?: string | 
   const mismatches = results.filter((r) => !r.matched)
 
   const facts: Fact[] = []
+  if (report.application_number) facts.push({ label: 'Application', value: report.application_number, mono: true })
+  if (report.participant_name || report.participant_id != null) {
+    facts.push({ label: 'Participant', value: report.participant_name || `#${report.participant_id}` })
+  }
   if (pan) facts.push({ label: 'PAN', value: String(pan).toUpperCase(), mono: true })
   if (ay) facts.push({ label: 'Assessment year', value: String(ay) })
   if (report.input_document) facts.push({ label: 'Customer ITR', value: report.input_document, mono: true })

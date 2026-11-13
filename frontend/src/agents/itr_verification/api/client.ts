@@ -1,5 +1,5 @@
 import { withoutDevNames } from '../../../shared/lib/people'
-import type { VerificationResponse } from '../types'
+import type { ApplicationParticipants, VerificationResponse } from '../types'
 
 // The agent is served by the credit-underwriting service under /api/v1/credit/itr-verification.
 // VITE_LOS_API_ORIGIN (build-time) names another origin; empty = the same origin as this page (or the dev proxy).
@@ -38,7 +38,19 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return withoutDevNames(await res.json())
 }
 
-/** Verify using document filenames / IDs / future S3-DMS URLs */
+/** The documents in the backend's local input / output folders (empty lists when documents are not read from there). */
+export async function fetchSampleDocuments(): Promise<{ input: string[]; output: string[] }> {
+  const res = await apiFetch(`/sample-documents`)
+  return handleResponse<{ input: string[]; output: string[] }>(res)
+}
+
+/** The application found by its number (e.g. LOS-DUMMY-0045) and the people under it. */
+export async function fetchParticipants(applicationNumber: string): Promise<ApplicationParticipants> {
+  const res = await apiFetch(`/applications/${encodeURIComponent(applicationNumber.trim())}/participants`)
+  return handleResponse<ApplicationParticipants>(res)
+}
+
+/** Verify using document filenames / IDs / future S3-DMS URLs, for one participant of an application */
 export async function verifyByIds(
   inputDocId: string,
   outputDocId: string,
@@ -49,6 +61,9 @@ export async function verifyByIds(
     finalStatus: string
     applicantName?: string
     address?: string
+    /** the application and the participant the ITR is verified for (the backend checks they belong together) */
+    applicationNumber?: string
+    participantId?: number | null
   },
 ): Promise<VerificationResponse> {
   const res = await apiFetch(`/verify/by-ids`, {
@@ -57,6 +72,8 @@ export async function verifyByIds(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
+      application_number: applicationData.applicationNumber?.trim() || undefined,
+      participant_id: applicationData.participantId ?? undefined,
       input_doc_id: inputDocId.trim(),
       output_doc_id: outputDocId.trim(),
       pan_number: applicationData.panNumber.trim(),

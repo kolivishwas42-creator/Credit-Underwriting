@@ -37,6 +37,15 @@ def _load(name: str) -> dict[str, Any]:
     return data
 
 
+def los_source_schema() -> str:
+    """The schema of the LOS tables this agent only READS (application, participants): ITR_VERIFICATION_LOS_SCHEMA,
+    default public."""
+    schema = env("LOS_SCHEMA", "public")
+    if not schema.isidentifier():
+        raise ValueError("ITR_VERIFICATION_LOS_SCHEMA must be an identifier")
+    return schema
+
+
 def rules_conf() -> dict[str, Any]:
     return _load("rules.yaml")
 
@@ -107,4 +116,4 @@ def storage_settings() -> StorageSettings:
 
 
 __all__ = ["AGENT", "CONF_DIR", "ENV_PREFIX", "ExtractionSettings", "StorageSettings", "documents_conf", "env",
-           "extraction_settings", "rules_conf", "storage_settings"]
+           "extraction_settings", "los_source_schema", "rules_conf", "storage_settings"]

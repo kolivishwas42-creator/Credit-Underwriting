@@ -17,10 +17,10 @@ from typing import Any, Dict, List, NoReturn, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 
-from .schemas import (VERSION, BulkRuleUpdateRequest, BulkSettingsUpdateRequest, ConfigResponse, HealthResponse,
+from .schemas import (VERSION, ApplicationParticipants, BulkRuleUpdateRequest, BulkSettingsUpdateRequest, ConfigResponse, HealthResponse,
                       RuleConfigItem, RuleConfigUpdateRequest, SystemSettingItem, SystemSettingUpdateRequest,
                       VerificationResponse, VerifyByIdsRequest)
-from .service import DocumentRejected, ITRVerificationService, UploadedDocument, build_service
+from .service import CaseNotFound, DocumentRejected, ITRVerificationService, UploadedDocument, build_service
 from .storage.base import DocumentNotFound
 
 logger = logging.getLogger(__name__)
@@ -66,6 +66,30 @@ def health(service: ITRVerificationService = Depends(get_service)):
 def get_config(service: ITRVerificationService = Depends(get_service)):
     """The comparison rules and thresholds in force."""
     return ConfigResponse(**service.current_config())
+
+
+# ------------------------------------------------------------------------------------------- sample documents
+@router.get("/sample-documents")
+def sample_documents(service: ITRVerificationService = Depends(get_service)) -> Dict[str, List[str]]:
+    """The file names in the local input / output document folders ({"input": [...], "output": [...]}), so the screen
+    can fill the document names for testing. Empty when documents are not read from local folders."""
+    try:
+        return service.sample_documents()
+    except Exception as exc:  # noqa: BLE001
+        _fail("Failed to list the sample documents", exc)
+
+
+# ----------------------------------------------------------------------------------------- application / people
+@router.get("/applications/{application_number}/participants", response_model=ApplicationParticipants)
+def application_participants(application_number: str, service: ITRVerificationService = Depends(get_service)):
+    """Look an application up by its number (e.g. LOS-DUMMY-0045): its id and its participants, for the participant
+    choice of the verify screen. 404 when the number is unknown."""
+    try:
+        return service.participants_of(application_number)
+    except CaseNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    except Exception as exc:  # noqa: BLE001
+        _fail("Failed to load the application", exc)
 
 
 # ------------------------------------------------------------------------------------------------ rules / settings
@@ -190,7 +214,7 @@ async def verify(input_doc: UploadFile = File(..., description="Customer Input I
 def verify_by_ids(payload: VerifyByIdsRequest, service: ITRVerificationService = Depends(get_service)):
     try:
         return service.verify_by_ids(payload)
-    except (DocumentNotFound, FileNotFoundError) as exc:
+    except (CaseNotFound, DocumentNotFound, FileNotFoundError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from None
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None

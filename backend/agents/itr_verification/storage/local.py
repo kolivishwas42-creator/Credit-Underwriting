@@ -24,5 +24,14 @@ class LocalResolver:
             raise DocumentNotFound(f"Document '{identifier}' not found in the {side} document store")
         return ResolvedDocument(path)
 
+    def list_documents(self, side: str, suffixes: tuple[str, ...] = ()) -> list[str]:
+        """The file names in the folder of a side (sorted; only these suffixes when given): the documents that can be
+        named in a verification. Used to offer sample documents for testing."""
+        base = self._dirs["input" if side == "input" else "output"]
+        if not base.is_dir():
+            return []
+        return sorted(p.name for p in base.iterdir()
+                      if p.is_file() and not p.name.startswith(".") and (not suffixes or p.suffix.lower() in suffixes))
+
 
 __all__ = ["LocalResolver"]

@@ -31,4 +31,14 @@ export interface VerificationResponse {
   output_fields: Record<string, any>
   input_document?: string
   output_document?: string
+  /** the application / participant the run was for (answered back by the backend) */
+  application_number?: string | null
+  participant_id?: number | null
+  participant_name?: string | null
+}
+
+/** GET /applications/{application_number}/participants */
+export interface ApplicationParticipants {
+  application: { application_id: number; application_number: string }
+  participants: { participant_id: number; name: string | null; applicant_type: string | null; is_primary: boolean }[]
 }

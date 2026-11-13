@@ -30,6 +30,10 @@ class Extractor(Protocol):
     def extract(self, file_path: str | Path) -> Tuple[Dict[str, Any], str]: ...
 
 
+class CaseNotFound(LookupError):
+    """The application number, or the participant under it, is not in the LOS."""
+
+
 class DocumentRejected(ValueError):
     """An uploaded document that cannot be used (no name, wrong type, too large)."""
 
@@ -92,6 +96,50 @@ class ITRVerificationService:
         except Exception as exc:  # noqa: BLE001 - a status, never the DSN
             return f"error:{type(exc).__name__}"
 
+    # ------------------------------------------------------------------------------------------ sample documents
+    def sample_documents(self) -> Dict[str, List[str]]:
+        """The documents in the local input / output folders, for the screen to fill the document names with (testing).
+        Empty lists when documents are not read from local folders (S3 / DMS) or the folders are not configured."""
+        empty: Dict[str, List[str]] = {"input": [], "output": []}
+        try:
+            resolver = self._resolver() if callable(self._resolver) else self._resolver
+        except ValueError:                      # the local folders are not configured
+            return empty
+        lister = getattr(resolver, "list_documents", None)
+        if lister is None:
+            return empty
+        types = tuple(self._extraction.supported_file_types)
+        return {"input": lister("input", types), "output": lister("output", types)}
+
+    # --------------------------------------------------------------------------------------- application / people
+    def participants_of(self, application_number: str) -> Dict[str, Any]:
+        """The application found by its number (e.g. LOS-DUMMY-0045) and the people under it."""
+        number = (application_number or "").strip()
+        application = self._repo.fetch_application_by_number(number) if number else None
+        if not application:
+            raise CaseNotFound("Application number was not found.")
+        people = [{"participant_id": row["participant_id"], "name": _full_name(row),
+                   "applicant_type": row.get("applicant_type"), "is_primary": bool(row.get("is_primary"))}
+                  for row in self._repo.list_participants(application["application_id"])]
+        return {"application": {"application_id": application["application_id"],
+                                "application_number": application["application_number"]},
+                "participants": people}
+
+    def _case(self, application_number: Optional[str], participant_id: Optional[int]) -> Dict[str, Any]:
+        """The application / participant a run is for. Both or neither; both must exist, the person under the
+        application. {} when neither is given (a run made without a case)."""
+        number = (application_number or "").strip()
+        if not number and participant_id is None:
+            return {}
+        if not number or participant_id is None:
+            raise ValueError("application_number and participant_id go together")
+        found = self.participants_of(number)
+        person = next((p for p in found["participants"] if p["participant_id"] == participant_id), None)
+        if person is None:
+            raise CaseNotFound("Participant was not found under the supplied application number.")
+        return {"application_number": found["application"]["application_number"],
+                "participant_id": participant_id, "participant_name": person["name"]}
+
     # ---------------------------------------------------------------------------------------------- verification
     def verify_documents(self, input_path: Path, output_path: Path, *, return_raw: bool = False,
                          application_data: Optional[Dict[str, Any]] = None,
@@ -139,6 +187,7 @@ class ITRVerificationService:
 
     def verify_by_ids(self, request: VerifyByIdsRequest) -> Dict[str, Any]:
         """Two documents named by id in the configured store, with the application's values and vendor status."""
+        case = self._case(request.application_number, request.participant_id)      # checked before any document is read
         resolver = self._resolver() if callable(self._resolver) else self._resolver
         resolved: List[ResolvedDocument] = []
         try:
@@ -155,7 +204,8 @@ class ITRVerificationService:
                     doc.path.unlink(missing_ok=True)
         report["input_document"] = request.input_doc_id
         report["output_document"] = request.output_doc_id
-        return self.persist(report, request.model_dump())
+        report.update(case)
+        return self.persist(report, {**request.model_dump(), **case})
 
     def verify_fields(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Already-extracted field dictionaries (no documents, no application data)."""
@@ -172,6 +222,8 @@ class ITRVerificationService:
         payload = request_payload or {}
         row = {
             "run_id": str(uuid.uuid4()),
+            "application_number": payload.get("application_number"),
+            "participant_id": payload.get("participant_id"),
             "input_doc_id": report.get("input_document") or payload.get("input_doc_id"),
             "output_doc_id": report.get("output_document") or payload.get("output_doc_id"),
             "pan_number": payload.get("pan_number"),
@@ -241,6 +293,12 @@ class ITRVerificationService:
         return self._repo.get_result(run_id)
 
 
+def _full_name(row: Dict[str, Any]) -> Optional[str]:
+    pieces = [row.get("salutation"), row.get("first_name"), row.get("middle_name"), row.get("last_name")]
+    name = " ".join(str(p).strip() for p in pieces if p and str(p).strip())
+    return name or row.get("customer_full_name")
+
+
 def build_service() -> ITRVerificationService:
     """The service wired to the real database, document store and extractor (nothing is opened here)."""
     from . import config
@@ -256,4 +314,4 @@ def build_service() -> ITRVerificationService:
                                   DocumentExtractor(extraction), Policy.from_conf(conf), extraction)
 
 
-__all__ = ["DocumentRejected", "Extractor", "ITRVerificationService", "UploadedDocument", "build_service"]
+__all__ = ["CaseNotFound", "DocumentRejected", "Extractor", "ITRVerificationService", "UploadedDocument", "build_service"]

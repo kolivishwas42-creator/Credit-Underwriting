@@ -31,6 +31,7 @@ stored; rules and thresholds are editable from the Rules Config screen.
 | GET | `/` | the routes below |
 | GET | `/health` | status, thresholds in force, supported types, `database` = `connected` / `error:<kind>` |
 | GET | `/config` | comparison / application rules and thresholds in force |
+| GET | `/applications/{application_number}/participants` | the application (found by its number, e.g. `LOS-DUMMY-0045`) and its participants (`participant_id`, `name`, `applicant_type`, `is_primary`); 404 when the number is unknown |
 | POST | `/verify` | multipart `input_doc` + `output_doc` upload (`?return_raw=`) |
 | POST | `/verify/by-ids` | documents named by id in the configured store + application values + `final_status` |
 | POST | `/verify/fields` | `{"input_fields": {...}, "output_fields": {...}}` (no documents, no application data) |
@@ -48,8 +49,15 @@ stored; rules and thresholds are editable from the Rules Config screen.
 
 ```json
 {"input_doc_id": "customer_itr.pdf", "output_doc_id": "vendor_itr.pdf", "pan_number": "ABCDE1234F",
- "assessment_year": "2024-25", "gti_income": 850000, "final_status": "Approved"}
+ "assessment_year": "2024-25", "gti_income": 850000, "final_status": "Approved",
+ "application_number": "LOS-DUMMY-0045", "participant_id": 102}
 ```
+
+`application_number` and `participant_id` name the case the ITR is verified for (the UI offers the participants of the
+application from `/applications/{application_number}/participants`). They go together: one without the other is 400;
+an unknown application, or a participant who is not under it, is 404 (checked before any document is read). The run keeps
+both (`verification_results.application_number` / `participant_id`) and the response carries them with `participant_name`.
+Optional in the API (older callers), required by the UI.
 
 The application fields are optional in the API (older callers), required by the UI. A missing application value is
 reported `NOT VERIFIED`; a missing or unrecognised vendor status follows `FINAL_STATUS_UNKNOWN_BEHAVIOUR`.
@@ -87,6 +95,7 @@ logged; result storage is best effort (a failed insert never fails a verificatio
 | Variable | Meaning |
 |---|---|
 | `LOS_AGENTIC_DSN` | the shared database (schema `itr_verification`), resolved by shared/db/core.py |
+| `ITR_VERIFICATION_LOS_SCHEMA` | the schema of the LOS tables read for the application / participants (default `public`) |
 | `ITR_VERIFICATION_DSN` | optional: a database of the agent's own instead |
 | `ITR_VERIFICATION_DOCUMENT_SOURCE` | `local` (default from conf) / `s3` / `dms` -- used by `/verify/by-ids` |
 | `ITR_VERIFICATION_LOCAL_INPUT_DIR`, `ITR_VERIFICATION_LOCAL_OUTPUT_DIR` | local store folders (required for `local`; ids cannot leave them) |

@@ -57,6 +57,22 @@ class FakeRepository:
     def ping(self) -> None:
         self._check()
 
+    # the LOS (read only): one application with two people
+    applications = {"LOS-DUMMY-0045": {"application_id": 45, "application_number": "LOS-DUMMY-0045"}}
+    participants = {45: [
+        {"participant_id": 101, "applicant_type": "Primary Applicant", "is_primary": True, "salutation": "Mr",
+         "first_name": "Ravi", "middle_name": None, "last_name": "Kumar", "customer_full_name": "Ravi Kumar"},
+        {"participant_id": 102, "applicant_type": "Co-Applicant", "is_primary": False, "salutation": None,
+         "first_name": None, "middle_name": None, "last_name": None, "customer_full_name": "Sita Devi"}]}
+
+    def fetch_application_by_number(self, application_number):
+        self._check()
+        return self.applications.get(application_number)
+
+    def list_participants(self, application_id):
+        self._check()
+        return list(self.participants.get(application_id, []))
+
     def list_rules(self, category: Optional[str] = None) -> list[dict]:
         self._check()
         rows = [r for r in self.rules if not category or r["category"] == category]

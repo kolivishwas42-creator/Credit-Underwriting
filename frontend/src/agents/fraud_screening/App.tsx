@@ -1,14 +1,14 @@
 import { AgentFrame } from "../../shared/components";
-import { useEffect, useState } from "react";
+import { useState } from "react";   // + useEffect for the hidden Rule configuration tab
 import { BackToForm, FormArea, ResultPage, useAgentLoader, useResultScreen } from "../../shared/components";
-import { RuleConfigTable } from "./components/Rules";
+// import { RuleConfigTable } from "./components/Rules";   // the hidden Rule configuration tab
 import { ScreenTab } from "./components/Screening";
 import { api } from "./services/api";
-import type { Evaluation, RuleConfig } from "./types";
+import type { Evaluation } from "./types";   // + RuleConfig for the hidden Rule configuration tab
 import { toResultPage } from "./utils/resultView";
 import { screenCount } from "./utils/screening";
 
-/** Loan Fraud Check: evaluate an application (rules + AML + PEP), read the results, switch rules on and off. */
+/** Loan Fraud Check: evaluate an application (rules + AML + PEP), read the results. (Rule configuration is hidden.) */
 export default function App() {
   const [appNum, setAppNum] = useState("");
   const [runAml, setRunAml] = useState(true);
@@ -19,12 +19,14 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<Evaluation | null>(null);
   const [run, setRun] = useState(0);              // a new evaluation collapses the lower-scoring records again
-  const [rules, setRules] = useState<RuleConfig[]>([]);
-  const [pending, setPending] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    api.rules().then(setRules).catch((e) => console.warn(e));
-  }, []);
+  // "Rule configuration" tab hidden (owner request): its state, loader and switch are kept commented -- uncomment these,
+  // the imports above and the tab entry below to show it again.
+  // const [rules, setRules] = useState<RuleConfig[]>([]);
+  // const [pending, setPending] = useState<Set<string>>(new Set());
+  //
+  // useEffect(() => {
+  //   api.rules().then(setRules).catch((e) => console.warn(e));
+  // }, []);
 
   async function evaluate() {
     const num = appNum.trim();
@@ -44,24 +46,24 @@ export default function App() {
     }
   }
 
-  async function toggle(rule: RuleConfig, enabled: boolean) {
-    const flip = (on: boolean) => setRules((rs) => rs.map((r) => (r.rule_key === rule.rule_key ? { ...r, enabled: on } : r)));
-    const lock = (on: boolean) => setPending((p) => {
-      const next = new Set(p);
-      if (on) next.add(rule.rule_key); else next.delete(rule.rule_key);
-      return next;
-    });
-    flip(enabled);
-    lock(true);
-    try {
-      await api.setRule(rule.rule_key, enabled);
-    } catch (e) {
-      window.alert((e as Error).message || "Update failed");
-      flip(!enabled);
-    } finally {
-      lock(false);
-    }
-  }
+  // async function toggle(rule: RuleConfig, enabled: boolean) {
+  //   const flip = (on: boolean) => setRules((rs) => rs.map((r) => (r.rule_key === rule.rule_key ? { ...r, enabled: on } : r)));
+  //   const lock = (on: boolean) => setPending((p) => {
+  //     const next = new Set(p);
+  //     if (on) next.add(rule.rule_key); else next.delete(rule.rule_key);
+  //     return next;
+  //   });
+  //   flip(enabled);
+  //   lock(true);
+  //   try {
+  //     await api.setRule(rule.rule_key, enabled);
+  //   } catch (e) {
+  //     window.alert((e as Error).message || "Update failed");
+  //     flip(!enabled);
+  //   } finally {
+  //     lock(false);
+  //   }
+  // }
 
   const screen = useResultScreen(data);
   return (
@@ -97,8 +99,8 @@ export default function App() {
               content: <div className="fs-extras" id="tab-aml"><ScreenTab key={run} kind="aml" data={data.aml} /></div> },
             { id: "pep", label: "PEP check", icon: "flag", count: screenCount(data.pep),
               content: <div className="fs-extras" id="tab-pep"><ScreenTab key={run} kind="pep" data={data.pep} /></div> },
-            { id: "config", label: "Rule configuration", icon: "key",
-              content: <div className="fs-extras"><RuleConfigTable rules={rules} pending={pending} onToggle={toggle} /></div> },
+            // { id: "config", label: "Rule configuration", icon: "key",
+            //   content: <div className="fs-extras"><RuleConfigTable rules={rules} pending={pending} onToggle={toggle} /></div> },
           ]} />
         </div>
       )}

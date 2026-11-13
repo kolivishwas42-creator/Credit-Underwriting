@@ -12,13 +12,17 @@ import threading
 from datetime import datetime
 from typing import Any, Iterable, Mapping, Optional, Protocol
 
-from .config import AGENT
+from .config import AGENT, los_source_schema
 from .db.schema import MIGRATIONS
 from .rules.policy import RULE_ATTRS, parse_setting
 
 
 class ITRRepository(Protocol):
     def ping(self) -> None: ...
+
+    def fetch_application_by_number(self, application_number: str) -> Optional[dict[str, Any]]: ...
+
+    def list_participants(self, application_id: int) -> list[dict[str, Any]]: ...
 
     def list_rules(self, category: Optional[str] = None) -> list[dict[str, Any]]: ...
 
@@ -60,7 +64,7 @@ def setting_dict(r: Mapping[str, Any]) -> dict[str, Any]:
             "description": r["description"], "updated_at": _iso(r["updated_at"]), "updated_by": r["updated_by"]}
 
 
-RESULT_COLUMNS = ("run_id", "input_doc_id", "output_doc_id", "pan_number", "assessment_year", "gti_income",
+RESULT_COLUMNS = ("run_id", "application_number", "participant_id", "input_doc_id", "output_doc_id", "pan_number", "assessment_year", "gti_income",
                   "final_status", "applicant_name", "address", "decision", "overall_score", "summary",
                   "vendor_final_status", "critical_failures", "mismatches", "field_results", "input_fields",
                   "output_fields")
@@ -136,6 +140,34 @@ class PostgresITRRepository:
     def ping(self) -> None:
         with self._tx() as conn:
             conn.execute("SELECT 1")
+
+    # -- LOS reads (read-only: the application and its people) ----------------------------------------------------
+    def fetch_application_by_number(self, application_number: str) -> Optional[dict[str, Any]]:
+        from psycopg import sql
+
+        query = sql.SQL("SELECT application_id, application_number FROM {} WHERE application_number = %s"
+                        ).format(sql.Identifier(los_source_schema(), "loan_applications"))
+        with self._tx() as conn:
+            return conn.execute(query, (application_number,)).fetchone()
+
+    def list_participants(self, application_id: int) -> list[dict[str, Any]]:
+        """The people of an application, primary first, with the name parts the service puts together."""
+        from psycopg import sql
+
+        schema = los_source_schema()
+        query = sql.SQL("""
+            SELECT ap.participant_id, ap.applicant_type, ap.is_primary, c.full_name AS customer_full_name,
+                   iad.salutation, iad.first_name, iad.middle_name, iad.last_name
+            FROM {participants} AS ap
+            LEFT JOIN {customers} AS c ON c.customer_id = ap.customer_id
+            LEFT JOIN {details} AS iad ON iad.participant_id = ap.participant_id
+            WHERE ap.application_id = %s
+            ORDER BY ap.is_primary DESC NULLS LAST, ap.participant_id
+        """).format(participants=sql.Identifier(schema, "application_participants"),
+                    customers=sql.Identifier(schema, "customers"),
+                    details=sql.Identifier(schema, "individual_applicant_details"))
+        with self._tx() as conn:
+            return list(conn.execute(query, (application_id,)).fetchall())
 
     # -- rules -----------------------------------------------------------------------------------------------------
     def list_rules(self, category: Optional[str] = None) -> list[dict[str, Any]]:

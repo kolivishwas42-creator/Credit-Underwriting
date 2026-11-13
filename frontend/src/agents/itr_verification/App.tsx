@@ -6,16 +6,31 @@ import {
   Settings,
   RefreshCw,
   Search,
+  Shuffle,
 } from 'lucide-react'
 import { SettingsModal } from './components/SettingsModal'
 import { RulesConfigTab } from './components/RulesConfigTab'
-import { verifyByIds } from './api/client'
+import { fetchParticipants, fetchSampleDocuments, verifyByIds } from './api/client'
 import { BackToForm, FormArea, ResultPage, useAgentLoader, useResultScreen } from '../../shared/components'
 import { toResultPage } from './utils/resultView'
 import { downloadReport } from './utils/downloadReport'
-import type { VerificationResponse } from './types'
+import type { ApplicationParticipants, VerificationResponse } from './types'
+
+/** For testing: fill the two document names with a random file of the backend's local input / output folders (data/itr)
+ *  when the screen opens, and offer a button to pick another pair. false = no automatic fill (the button stays). */
+const PREFILL_SAMPLE_DOCUMENTS = true
+const randomOf = (names: string[]) => names[Math.floor(Math.random() * names.length)]
+
+type Person = ApplicationParticipants['participants'][number]
+const personLabel = (p: Person) => [p.name || `Participant ${p.participant_id}`, p.applicant_type].filter(Boolean).join(' · ')
 
 export default function App() {
+  // the application (found by its number) and the participant whose ITR is verified
+  const [applicationNumber, setApplicationNumber] = useState('')
+  const [participants, setParticipants] = useState<Person[]>([])
+  const [participantId, setParticipantId] = useState<number | ''>('')
+  const [lookup, setLookup] = useState<{ state: 'idle' | 'loading' | 'found' | 'error'; message: string }>({ state: 'idle', message: '' })
+  const [samples, setSamples] = useState<{ input: string[]; output: string[] }>({ input: [], output: [] })
   const [inputId, setInputId] = useState('')
   const [outputId, setOutputId] = useState('')
   const [panNumber, setPanNumber] = useState('')
@@ -61,6 +76,53 @@ export default function App() {
     }
   }, [])
 
+  // Sample documents (testing): the files of the backend's local folders, one random pair filled in when the screen opens
+  const pickSampleDocuments = (from = samples) => {
+    if (from.input.length) setInputId(randomOf(from.input))
+    if (from.output.length) setOutputId(randomOf(from.output))
+  }
+  useEffect(() => {
+    let cancelled = false
+    fetchSampleDocuments()
+      .then((found) => {
+        if (cancelled) return
+        setSamples(found)
+        const fromUrl = new URLSearchParams(window.location.search).has('input_id')   // an explicit link keeps its names
+        if (PREFILL_SAMPLE_DOCUMENTS && !fromUrl) pickSampleDocuments(found)
+      })
+      .catch(() => { /* no sample documents: the names are typed as before */ })
+    return () => { cancelled = true }
+  }, [])
+
+  // The application is looked up by its number a moment after typing stops; its people fill the Participant choice.
+  useEffect(() => {
+    const number = applicationNumber.trim()
+    setParticipants([])
+    setParticipantId('')
+    if (!number) {
+      setLookup({ state: 'idle', message: '' })
+      return undefined
+    }
+    let cancelled = false
+    setLookup({ state: 'loading', message: 'Looking up the application…' })
+    const timer = setTimeout(async () => {
+      try {
+        const found = await fetchParticipants(number)
+        if (cancelled) return
+        setParticipants(found.participants)
+        const first = found.participants.find((p) => p.is_primary) || found.participants[0]
+        setParticipantId(first ? first.participant_id : '')
+        setLookup(found.participants.length
+          ? { state: 'found', message: '' }
+          : { state: 'error', message: 'This application has no participants.' })
+      } catch (e: any) {
+        if (cancelled) return
+        setLookup({ state: 'error', message: e?.message || 'Could not look up the application.' })
+      }
+    }, 400)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [applicationNumber])
+
   const runVerification = async (
     inId: string,
     outId: string,
@@ -68,6 +130,12 @@ export default function App() {
   ) => {
     if (!inId.trim() || !outId.trim()) {
       setError('Both Input and Output document names are required.')
+      return
+    }
+
+    // a run started from the screen needs the application and the participant (a URL auto-start has its own values)
+    if (!suppliedApplicationData && (!applicationNumber.trim() || participantId === '')) {
+      setError('Enter the application number and choose the participant before verification.')
       return
     }
 
@@ -86,7 +154,8 @@ export default function App() {
     setReport(null)
 
     try {
-      const result = await verifyByIds(inId.trim(), outId.trim(), application)
+      const result = await verifyByIds(inId.trim(), outId.trim(), suppliedApplicationData ? application : {
+        ...application, applicationNumber: applicationNumber.trim(), participantId: participantId === '' ? null : participantId })
       setReport(result)
     } catch (e: any) {
       setError(e?.message || 'Verification failed. Check API URL and that the files exist on the backend.')
@@ -101,6 +170,7 @@ export default function App() {
   }
 
   const handleReset = () => {
+    setApplicationNumber('')
     setInputId('')
     setOutputId('')
     setPanNumber('')
@@ -115,7 +185,7 @@ export default function App() {
 
   const screen = useResultScreen(report)
   return (
-    <AgentFrame agent="itr_verification" caseLabel={report ? `${panNumber} · AY ${assessmentYear}` : undefined}
+    <AgentFrame agent="itr_verification" caseLabel={report ? [report.application_number, `${panNumber} · AY ${assessmentYear}`].filter(Boolean).join(' · ') : undefined}
       footer={import.meta.env.DEV ? (
         <button onClick={() => setSettingsOpen(true)}
           className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600">
@@ -150,7 +220,66 @@ export default function App() {
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
+                {/* the case: which application, and which of its participants the ITR belongs to */}
                 <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label htmlFor="itr-application-number" className="mb-1.5 block text-sm font-medium text-slate-700">
+                      Application number
+                    </label>
+                    <input
+                      id="itr-application-number"
+                      required
+                      type="text"
+                      value={applicationNumber}
+                      onChange={(e) => setApplicationNumber(e.target.value)}
+                      placeholder="e.g. LOS-DUMMY-0045"
+                      autoComplete="off"
+                      aria-describedby="itr-application-lookup"
+                      disabled={loading}
+                      className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-50"
+                    />
+                    <p id="itr-application-lookup" role="status"
+                       className={`mt-1 min-h-[1rem] text-xs ${lookup.state === 'error' ? 'text-red-600' : 'text-slate-400'}`}>
+                      {lookup.message}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label htmlFor="itr-participant" className="mb-1.5 block text-sm font-medium text-slate-700">
+                      Participant
+                    </label>
+                    <select
+                      id="itr-participant"
+                      required
+                      value={participantId}
+                      onChange={(e) => setParticipantId(e.target.value === '' ? '' : Number(e.target.value))}
+                      disabled={loading || participants.length === 0}
+                      className="w-full rounded-xl border border-slate-300 px-4 py-2.5 text-sm disabled:bg-slate-50"
+                    >
+                      {participants.length === 0 && <option value="">Enter an application number first</option>}
+                      {participants.map((p) => (
+                        <option key={p.participant_id} value={p.participant_id}>{personLabel(p)}</option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-slate-400">The person whose ITR is being verified</p>
+                  </div>
+                </div>
+
+                {samples.input.length > 0 && samples.output.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => pickSampleDocuments()}
+                      disabled={loading}
+                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      <Shuffle className="h-4 w-4" />
+                      Random sample documents
+                    </button>
+                    <span className="text-xs text-slate-400">For testing: picks a customer and a vendor ITR from the sample folders</span>
+                  </div>
+                )}
+                <div className="grid gap-4 pt-1 md:grid-cols-2">
                   <div>
                     <label className="mb-1.5 block text-sm font-medium text-slate-700">
                       Input Document (Customer)
@@ -246,7 +375,7 @@ export default function App() {
                 <div className="flex flex-wrap items-center gap-3 pt-1">
                   <button
                     type="submit"
-                    disabled={loading || !inputId.trim() || !outputId.trim()}
+                    disabled={loading || !inputId.trim() || !outputId.trim() || !applicationNumber.trim() || participantId === ''}
                     className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-semibold text-on-ink transition hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {loading ? (

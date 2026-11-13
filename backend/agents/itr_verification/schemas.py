@@ -29,6 +29,10 @@ class FieldResultItem(BaseModel):
 
 
 class VerifyByIdsRequest(BaseModel):
+    application_number: Optional[str] = Field(None, description="Application the ITR is verified for, e.g. "
+                                                                "LOS-DUMMY-0045 (with participant_id)")
+    participant_id: Optional[int] = Field(None, description="Participant of that application the ITR belongs to "
+                                                            "(from GET /applications/{number}/participants)")
     input_doc_id: str = Field(..., description="Filename or ID of the customer Input ITR document")
     output_doc_id: str = Field(..., description="Filename or ID of the vendor Output ITR document")
     pan_number: Optional[str] = Field(None, description="PAN supplied by customer at loan application")
@@ -54,6 +58,26 @@ class VerificationResponse(BaseModel):
     input_document: str = ""
     output_document: str = ""
     run_id: Optional[str] = Field(None, description="Persisted result id when DB is available")
+    application_number: Optional[str] = None
+    participant_id: Optional[int] = None
+    participant_name: Optional[str] = None
+
+
+class ParticipantItem(BaseModel):
+    participant_id: int
+    name: Optional[str] = None
+    applicant_type: Optional[str] = None
+    is_primary: bool = False
+
+
+class ApplicationRef(BaseModel):
+    application_id: int
+    application_number: str
+
+
+class ApplicationParticipants(BaseModel):
+    application: ApplicationRef
+    participants: List[ParticipantItem] = Field(default_factory=list)
 
 
 class HealthResponse(BaseModel):
@@ -139,6 +163,6 @@ class BulkSettingsUpdateRequest(BaseModel):
 
 VERSION = "1.1.0"
 
-__all__ = ["BulkRuleUpdateRequest", "BulkSettingsUpdateRequest", "ConfigResponse", "FieldResultItem",
+__all__ = ["ApplicationParticipants", "ApplicationRef", "ParticipantItem", "BulkRuleUpdateRequest", "BulkSettingsUpdateRequest", "ConfigResponse", "FieldResultItem",
            "HealthResponse", "MismatchItem", "RuleConfigItem", "RuleConfigUpdateRequest", "SystemSettingItem",
            "SystemSettingUpdateRequest", "VERSION", "VerificationResponse", "VerifyByIdsRequest"]

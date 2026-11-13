@@ -49,6 +49,53 @@ def test_verify_by_ids(client):
     assert client.post(f"{BASE}/verify/by-ids", json={**payload, "gti_income": -1}).status_code == 422
 
 
+def test_participants_of_an_application_number(client):
+    r = client.get(f"{BASE}/applications/LOS-DUMMY-0045/participants")
+    assert r.status_code == 200
+    assert r.json() == {"application": {"application_id": 45, "application_number": "LOS-DUMMY-0045"},
+                        "participants": [
+                            {"participant_id": 101, "name": "Mr Ravi Kumar", "applicant_type": "Primary Applicant",
+                             "is_primary": True},
+                            {"participant_id": 102, "name": "Sita Devi", "applicant_type": "Co-Applicant",
+                             "is_primary": False}]}
+    assert client.get(f"{BASE}/applications/NOPE/participants").status_code == 404
+
+
+def test_verify_by_ids_for_an_application_and_participant(client):
+    payload = {"input_doc_id": "in.pdf", "output_doc_id": "out.pdf", "pan_number": "ABCDE1234F",
+               "assessment_year": "2024-25", "gti_income": 850000, "final_status": "APPROVED",
+               "application_number": "LOS-DUMMY-0045", "participant_id": 102}
+    r = client.post(f"{BASE}/verify/by-ids", json=payload)
+    assert r.status_code == 200
+    body = r.json()
+    assert (body["application_number"], body["participant_id"], body["participant_name"]) == \
+        ("LOS-DUMMY-0045", 102, "Sita Devi")
+    stored = client.get(f"{BASE}/results/{body['run_id']}").json()
+    assert (stored["application_number"], stored["participant_id"]) == ("LOS-DUMMY-0045", 102)
+    # a person who is not under that application, an unknown application, and one without the other
+    assert client.post(f"{BASE}/verify/by-ids", json={**payload, "participant_id": 999}).status_code == 404
+    assert client.post(f"{BASE}/verify/by-ids", json={**payload, "application_number": "NOPE"}).status_code == 404
+    assert client.post(f"{BASE}/verify/by-ids", json={**payload, "participant_id": None}).status_code == 400
+
+
+def test_sample_documents_are_the_local_folders_files(client, tmp_path, monkeypatch):
+    from agents.itr_verification.api import get_service
+    from agents.itr_verification.storage.local import LocalResolver
+
+    (tmp_path / "in").mkdir()
+    (tmp_path / "out").mkdir()
+    for name in ("b.pdf", "a.pdf", "notes.txt", ".hidden.pdf"):
+        (tmp_path / "in" / name).write_bytes(b"x")
+    (tmp_path / "out" / "v.pdf").write_bytes(b"x")
+    service = client.app.dependency_overrides[get_service]()
+    monkeypatch.setattr(service, "_resolver", LocalResolver(str(tmp_path / "in"), str(tmp_path / "out")))
+    assert client.get(f"{BASE}/sample-documents").json() == {"input": ["a.pdf", "b.pdf"], "output": ["v.pdf"]}
+
+
+def test_sample_documents_empty_without_a_local_store(client):
+    assert client.get(f"{BASE}/sample-documents").json() == {"input": [], "output": []}
+
+
 def test_upload_rejects_wrong_type(client):
     files = {"input_doc": ("a.txt", b"x", "text/plain"), "output_doc": ("b.pdf", b"x", "application/pdf")}
     r = client.post(f"{BASE}/verify", files=files)

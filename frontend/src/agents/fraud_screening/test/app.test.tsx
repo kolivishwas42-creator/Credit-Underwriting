@@ -115,7 +115,8 @@ describe("the screen", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Application APP-MISSING not found");
   });
 
-  it("toggles a rule and puts it back when the save fails", async () => {
+  // skipped while the "Rule configuration" tab is hidden (owner request); unskip when it is shown again
+  it.skip("toggles a rule and puts it back when the save fails", async () => {
     await evaluate();
     fireEvent.click(await screen.findByRole("tab", { name: "Rule configuration" }));
     const sw = screen.getByLabelText("Enable Mobile shared with another application") as HTMLInputElement;
