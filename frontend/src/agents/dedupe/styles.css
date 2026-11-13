@@ -845,3 +845,6 @@ dialog::backdrop { background: rgba(12, 12, 15, .55); backdrop-filter: blur(3px)
 /* the stage stepper scrolls inside its own box and never pushes the screen sideways (phones: smaller side margins) */
 .stepper { min-width: 0; max-width: calc(100% - 64px); box-sizing: border-box; }
 @media (max-width: 640px) { .stepper { margin-left: 12px; margin-right: 12px; max-width: calc(100% - 24px); } }
+
+/* "Fill sample" lines up with the form it fills (owner 2026-11-12 UI pass): the head is as wide as the narrow card */
+.page-head:has(+ .card.narrow) { max-width: 720px; }

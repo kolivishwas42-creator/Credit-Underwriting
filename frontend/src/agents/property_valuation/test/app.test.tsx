@@ -113,7 +113,8 @@ describe("the screen", () => {
     expect(await screen.findByText("Application not found")).toBeInTheDocument();
   });
 
-  it("loads the rules when the tab opens and saves one", async () => {
+  // skipped while the "Rule configuration" sidebar item is hidden (owner request); unskip when it is shown again
+  it.skip("loads the rules when the tab opens and saves one", async () => {
     render(<App />);
     fireEvent.click(screen.getByRole("tab", { name: "Rule configuration" }));
     expect(await screen.findByText("RULE_2 · Owner Name Consistency")).toBeInTheDocument();

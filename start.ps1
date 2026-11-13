@@ -25,7 +25,7 @@ $frontend = Join-Path $root "frontend"
 $scopes = @(
     "read_applicant", "read_application", "read_documents", "read_verification", "read_pending_items",
     "read_next_action", "create_applicant", "update_applicant", "create_application", "upload_document",
-    "agents:execute", "los.read", "los.write", "los.dedupe.read", "los.credit.underwrite"
+    "agents:execute", "los.read", "los.write", "los.dedupe.read", "los.credit.underwrite", "los.rules.write"
 ) -join " "
 
 # python: the backend's own venv; the first run creates it and installs requirements.txt

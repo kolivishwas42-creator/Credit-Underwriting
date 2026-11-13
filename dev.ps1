@@ -150,7 +150,7 @@ $env:AUTH_ENABLED = "false"
 $env:AUTH_LOCAL_SCOPES = @(
     "read_applicant", "read_application", "read_documents", "read_verification", "read_pending_items",
     "read_next_action", "create_applicant", "update_applicant", "create_application", "upload_document",
-    "agents:execute", "los.read", "los.write", "los.dedupe.read", "los.credit.underwrite"
+    "agents:execute", "los.read", "los.write", "los.dedupe.read", "los.credit.underwrite", "los.rules.write"
 ) -join " "
 # Dedupe works out of the box: its data sources answer from the demo data (agents/dedupe/conf/mifin_demo.yaml)
 # unless backend\.env or this window already chose a source. The backend refuses "demo" in production.

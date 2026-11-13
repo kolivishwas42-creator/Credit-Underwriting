@@ -33,6 +33,8 @@ const PATHS: Record<string, string> = {
   chevron: "M6 9l6 6 6-6",
   calc: "M6 3h12v18H6zM9 7h6M9 11h.01M12 11h.01M15 11h.01M9 14h.01M12 14h.01M15 14h.01M9 17h.01M12 17h.01M15 17h.01",
   list: "M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01",
+  sliders: "M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M14 4v4M8 10v4M16 16v4",
+  refresh: "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7",
 };
 
 export function Icon({ name, title }: { name: string; title?: string }) {

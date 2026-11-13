@@ -211,7 +211,9 @@ def evaluate(h: dict[str, Any], requested_amount: Any = None) -> dict[str, Any]:
     return {"policy": {"policy_id": p["policy_id"], "policy_version": p["policy_version"],
                        "signed_off": bool(p.get("signed_off"))},
             "outcome": outcome, "reason_codes": reasons, "next_actions": actions, "rules": rules,
-            "rule_counts": counts, "complete": counts[NOT_EVALUATED] == 0 and counts[FAILED] == 0}
+            # a rule switched off on purpose (reason DISABLED) does not make the history incomplete (owner 2026-11-12)
+            "rule_counts": counts, "complete": not any(r["outcome"] in (NOT_EVALUATED, FAILED) and r.get("reason") != "DISABLED"
+                                                       for r in rules)}
 
 
 __all__ = ["OUTCOMES", "SIGNALS", "evaluate", "load", "policy", "reload", "signals"]

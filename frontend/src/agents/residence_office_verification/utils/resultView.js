@@ -85,15 +85,15 @@ export function toResultPage(result, form = {}, aiSummary = '') {
   return {
     basic: {
       eyebrow: `Credit underwriting · ${type === 'OFFICE' ? 'Office' : 'Residence'} verification`,
-      title: `Application ${form.application_id ?? '—'}`,
-      subtitle: `Participant ${form.participant_id ?? '—'} · ${type}`,
+      title: `Application ${form.application_number || form.application_id || '—'}`,
+      subtitle: `${form.participant_name || `Participant ${form.participant_id ?? '—'}`} · ${type}`,
       icon: 'home',
       decision: result?.overall_recommendation
         ? { label: result.overall_recommendation, tone: recommendationTone(result.overall_recommendation) }
         : undefined,
       facts: [
-        { label: 'Application', value: form.application_id ?? '—', mono: true },
-        { label: 'Participant', value: form.participant_id ?? '—', mono: true },
+        { label: 'Application', value: form.application_number || form.application_id || '—', mono: true },
+        { label: 'Participant', value: form.participant_name || form.participant_id || '—', mono: !form.participant_name },
         { label: 'Vendor', value: result?.vendor?.name || form.vendor_name || '—' },
         { label: 'Criticality', value: result?.overall_criticality || '—' },
       ],

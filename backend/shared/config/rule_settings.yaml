@@ -1,0 +1,117 @@
+# RULE SETTINGS (owner 2026-11-12: "rules config hona chahiye: on/off, disable, add"). For each rule set kept in the
+# versioned rule store (agent_databases.yaml rules.sets), where its rules are and what the Rules settings screen may
+# change. A change is a NEW VERSION of that rule set -- validated by the set's own validator, put in force, who / when /
+# why recorded in rule_set_changes (shared/db/rule_store.py). Nothing here is a business rule itself.
+#
+#   kind: list        the rules are a list of maps; `id` is the field naming each one; on/off = `enabled`
+#         map         the rules are a map {id: {...}}; on/off = <id>.enabled
+#         bool_map    the rules are a map {id: true|false}; on/off = the value
+#         membership  each id is ON when it is in the list at `path` (Crime: risk levels that need review);
+#                     the ids come from `universe`
+#   params:          {rule id: [dotted paths from the top of the rule set]} -- numbers that rule reads
+#   params_in_rule:  [field, ...] -- numbers inside each rule's own entry (Dedupe: threshold)
+#   locked:          ids that are always on (an overall result that sums the others up)
+#   names:           a rule's display name: {map: {id: name}}, or {file, path} with {id} in the path; else `name_field`
+#   templates:       rules that can be ADDED (only where a rule is data, not code: Dedupe, Customer history)
+#
+# Who may change rules: the scope in `write_scope` (read needs a login only).
+
+write_scope: "los.rules.write"
+
+sets:
+  eligibility_policy:
+    agent: eligibility
+    title: "Eligibility"
+    kind: list
+    path: rules.checks
+    id: rule
+    names:
+      map: { AGE: "Age limits", INCOME: "Minimum income", SCORE: "Bureau score", DPD: "Repayment delays (DPD)",
+             FOIR: "FOIR (EMI to income)", LTV: "LTV (loan to property value)" }
+    params:
+      AGE: [rules.min_age, rules.max_age, rules.max_age_at_maturity]
+      INCOME: [rules.min_income]
+      SCORE: [rules.min_score, rules.refer_margin]
+      DPD: [rules.max_dpd_12m, rules.dpd_refer_upto]
+      FOIR: [rules.foir_limit_pct]
+
+  dedupe_policy:
+    agent: dedupe
+    title: "Dedupe"
+    kind: list
+    path: rules
+    id: rule_id
+    name_field: description
+    params_in_rule: [threshold]
+    templates:
+      threshold_rule:
+        title: "A signal compared with a threshold"
+        signals_from: "agents.dedupe.config:SIGNALS"
+        operators: [gt, ge, lt, le, eq]
+        severities: [LOW, MEDIUM, HIGH]
+        # copied into the new rule as they are (the validator checks the whole rule)
+        defaults: { confirmation_status: UNCONFIRMED }
+        fields: [rule_id, description, signal, operator, threshold, severity, recommendation]
+
+  customer_history_policy:
+    agent: dedupe
+    title: "Customer history"
+    kind: list
+    path: rules
+    id: rule_id
+    name_field: description
+    params_in_rule: [threshold]
+    templates:
+      threshold_rule:
+        title: "A signal compared with a threshold"
+        signals_from: "agents.dedupe.history_policy:SIGNALS"
+        operators: [gt, ge, lt, le, eq]
+        severities: [LOW, MEDIUM, HIGH]
+        defaults: { confirmation_status: UNCONFIRMED }
+        fields: [rule_id, description, signal, operator, threshold, severity, recommendation, reason_code, next_action]
+
+  bank_verification_policy:
+    agent: bank_verification
+    title: "Bank verification"
+    kind: map
+    path: rule_switches                   # R1-R7; R8 (overall risk) is not in the map: it always runs
+    ids: [R1, R2, R3, R4, R5, R6, R7]      # listed even when the version in force predates rule_switches (all on)
+    names: { file: agents/bank_verification/conf/bank_verification_wording.yaml, path: "rules.{id}.name" }
+    params:
+      R2: [latest_transactions.count]
+      R3: [integrity.modified_after_created_hours, integrity.period_grace_days]
+      R5: [balance.tolerance]
+      R7: [duplicates.similar_min_shared_transactions]
+
+  legal_verification_policy:
+    agent: legal_verification
+    title: "Legal verification"
+    kind: map
+    path: rules
+    locked: [R10]                         # the overall recommendation sums the others up
+    names: { file: agents/legal_verification/conf/legal_verification_wording.yaml, path: "rules.{id}.name" }
+    params:
+      R2: [documents.modified_after_created_hours]
+      R4: [title_search.years]
+      R6: [encumbrance.years]
+      R10: [recommendation.escalate_min_failed]
+
+  crime_verification_policy:
+    agent: crime_verification
+    title: "Crime record verification"
+    kind: membership                      # a risk level is ON when it sends the person to review
+    path: review_required_risks
+    universe: risk_levels
+    names: { file: agents/crime_verification/conf/crime_verification_wording.yaml, path: "risk.labels.{id}" }
+    on_label: "Sends to review"
+
+  docs_policy:
+    agent: docs_policy
+    title: "Credit document policy"
+    family: true                          # one rule set per policy file: docs_policy:<file>
+    kind: bool_map
+    path: rules
+    locked: [RULE-10]                     # compliance and audit is never off (the policy model refuses it)
+    names: { file: agents/docs_policy/config/reasons.yaml, path: "rule_names.{id}" }
+    params:
+      RULE-11: [file_rules.default.max_mb, file_rules.default.min_kb]

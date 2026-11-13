@@ -149,7 +149,7 @@ html:root:root.agent-legal_verification .agent-host .case-strip h1 {
   font-family: var(--font); font-weight: 600; letter-spacing: -.006em; }
 
 /* §4.2 eyebrow: uppercase kickers open up to +0.09em */
-html:root:root[class*="agent-"] .agent-host :is(.eyebrow, .section-title, .hero-kicker, .drawer-kicker) { letter-spacing: .09em; }
+html:root:root[class*="agent-"] .agent-host :is(.eyebrow, .section-title, .hero-kicker, .drawer-kicker):not(h1, h2) { letter-spacing: .09em; }
 
 /* §4.4 numbers that line up in columns */
 html:root:root[class*="agent-"] .agent-host :is(td, th, .num, .amount, .money, .figure, .stat-value, .kpi-value) {

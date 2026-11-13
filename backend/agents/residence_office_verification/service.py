@@ -1,6 +1,7 @@
 """
 The use cases of the residence / office verification agent. No FastAPI, no SQL: the repository is injected.
 
+    participants_of(application_number)   the application and its people, found by the application number
     verify(request)                       pick the participant's one address, run the rules, store the run, add the
                                           AI risk summary of the triggered rules (summary.py; never fails the run)
     list_rule_configs(mode)               the rule settings of RESIDENCE or OFFICE
@@ -62,6 +63,19 @@ class ResidenceVerificationService:
         self._repo = repository
         self._settings = settings
         self._summariser = summariser             # None: no AI summary (ai_summary_source "off")
+
+    def participants_of(self, application_number: str) -> dict[str, Any]:
+        """The application found by its number (e.g. LOS-DUMMY-0045) and the people under it."""
+        number = (application_number or "").strip()
+        application = self._repo.fetch_application_by_number(number) if number else None
+        if not application:
+            raise VerificationError(404, "Application number was not found.")
+        people = [{"participant_id": row["participant_id"], "name": full_name(row),
+                   "applicant_type": row.get("applicant_type"), "is_primary": bool(row.get("is_primary"))}
+                  for row in self._repo.list_participants(application["application_id"])]
+        return {"application": {"application_id": application["application_id"],
+                                "application_number": application["application_number"]},
+                "participants": people}
 
     def verify(self, request: ResidenceVerificationRequest) -> dict[str, Any]:
         repo = self._repo

@@ -11,6 +11,7 @@ Mounted by `main.py` under `/api/v1` with the LOS token (like every agent):
 
 | Method | Path | What |
 |---|---|---|
+| GET | `/applications/{application_number}/participants` | The application (found by its number, e.g. `LOS-DUMMY-0045`) and its participants: `participant_id`, `name`, `applicant_type`, `is_primary` (404 when the number is unknown) |
 | POST | `/residence-verification` | Evaluate the vendor response; stores the run, returns `result_id` |
 | GET | `/rule-configs?verification_type=RESIDENCE\|OFFICE` | The rule settings (case-insensitive type) |
 | PUT | `/rule-configs` | Bulk update of `enabled`, `criticality`, `weight`, `name`, `rule_id` by `rule_key` (one transaction) |

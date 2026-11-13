@@ -21,7 +21,8 @@ from agents.legal_verification.config import cfg, label, say, section, words
 from agents.legal_verification.rules import fold
 
 FAIL, REVIEW, PASS = "FAIL", "REVIEW", "PASS"
-ORDER = {FAIL: 0, REVIEW: 1, PASS: 2}
+NOT_APPLICABLE = "NOT_APPLICABLE"            # a rule switched off in the rule settings (owner 2026-11-12)
+ORDER = {FAIL: 0, REVIEW: 1, PASS: 2, NOT_APPLICABLE: 3}
 SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2}
 
 
@@ -50,9 +51,9 @@ def _row(label_: str, match: bool | None, note: str | None = None, **values: Any
 def _result(rule: str, status: str, reason: str, *, rows: list[dict] | None = None, missing: list[str] | None = None,
             action: str | None = None) -> dict[str, Any]:
     spec = (section("rules").get(rule) or {})
-    act = None if status == PASS else (action or spec.get("action"))
+    act = None if status in (PASS, NOT_APPLICABLE) else (action or spec.get("action"))
     return {"id": rule, "number": int(rule[1:]), "name": _w(rule, "name"), "explain": _w(rule, "explain"),
-            "why": _w(rule, "why") if status != PASS else None, "status": status,
+            "why": _w(rule, "why") if status not in (PASS, NOT_APPLICABLE) else None, "status": status,
             "status_label": label("rule_statuses", status),
             "severity": spec.get("severity") if status == FAIL else ("REVIEW" if status == REVIEW else None),
             "severity_label": label("severities", spec.get("severity")) if status == FAIL else None,
@@ -424,11 +425,23 @@ def overall(results: list[dict[str, Any]], ev: Evidence) -> tuple[dict[str, Any]
     return rule, overview
 
 
+def enabled(rule: str) -> bool:
+    """RULE ON / OFF (owner 2026-11-12): `rules.<id>.enabled` in the rules in force; on unless set false. R10 (the
+    overall recommendation) is never switched off -- it counts only FAIL / REVIEW / PASS, so a rule that is off is
+    simply not counted."""
+    return (section("rules").get(rule) or {}).get("enabled", True) is not False
+
+
+def _off(rule: str) -> dict[str, Any]:
+    return _result(rule, NOT_APPLICABLE, say("rule_disabled"))
+
+
 def run(ev: Evidence) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """The ten results (in rule order) and the overview."""
-    first = [owners(ev), deed_consistency(ev), address(ev), history(ev), registration(ev), encumbrance(ev),
-             required_documents(ev), legal_checks(ev)]
-    results = first + [agency_cross_check(ev, first)]
+    """The ten results (in rule order) and the overview. A rule switched off is NOT_APPLICABLE."""
+    checks = (("R1", owners), ("R2", deed_consistency), ("R3", address), ("R4", history), ("R5", registration),
+              ("R6", encumbrance), ("R7", required_documents), ("R8", legal_checks))
+    first = [check(ev) if enabled(rule) else _off(rule) for rule, check in checks]
+    results = first + [agency_cross_check(ev, first) if enabled("R9") else _off("R9")]
     rule10, overview = overall(results, ev)
     return results + [rule10], overview
 
@@ -439,4 +452,4 @@ def ordered(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
                                           r["number"]))
 
 
-__all__ = ["Evidence", "FAIL", "PASS", "REVIEW", "ordered", "run", "words", "cfg"]
+__all__ = ["Evidence", "FAIL", "NOT_APPLICABLE", "PASS", "REVIEW", "enabled", "ordered", "run", "words", "cfg"]

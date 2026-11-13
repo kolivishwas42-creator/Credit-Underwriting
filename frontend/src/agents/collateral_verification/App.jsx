@@ -76,7 +76,8 @@ export default function App() {
       items={[
         { id: "verify", label: "Verify", icon: "file-check", active: activeTab === "verify" && !screen.onResult,
           onSelect: () => { setActiveTab("verify"); screen.back(); } },
-        { id: "rules", label: "Rules Config", icon: "list", active: activeTab === "rules", onSelect: () => setActiveTab("rules") },
+        // "Rules Config" sidebar item hidden for now (owner request) -- uncomment to show it again.
+        // { id: "rules", label: "Rules Config", icon: "list", active: activeTab === "rules", onSelect: () => setActiveTab("rules") },
         ...(screen.hasResult ? [{ id: "result", label: "Result", icon: "sparkle", active: activeTab === "verify" && screen.onResult,
           onSelect: () => { setActiveTab("verify"); screen.show(); } }] : []),
       ]}>

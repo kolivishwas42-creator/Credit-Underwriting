@@ -1,7 +1,7 @@
 // The risk meter of the CrimeCheck report: five labelled arcs from Very High Risk (left) to No Risk (right), each
 // with its name written along it, and a needle that swings to the person's level. Colour, position AND the word carry
 // the level; the caption below names it again.
-const LEVELS = ["NO_RISK", "LOW_RISK", "AVERAGE_RISK", "HIGH_RISK", "VERY_HIGH_RISK"];
+export const LEVELS = ["NO_RISK", "LOW_RISK", "AVERAGE_RISK", "HIGH_RISK", "VERY_HIGH_RISK"];
 const R = 100;          // arc centre line
 const W = 34;           // arc thickness
 const CX = 130;

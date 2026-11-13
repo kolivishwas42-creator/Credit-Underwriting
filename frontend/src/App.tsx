@@ -3,6 +3,7 @@ import { agentById } from "./config/agents";
 import { SCREENS } from "./agents/registry";
 import { AgentHost, CommandPalette, Home, TopNav } from "./shared/components";
 import { DesignPage } from "./shared/components/DesignPage";
+import { useModernTooltips } from "./shared/hooks/useModernTooltips";
 import { useOptionSpacing } from "./shared/hooks/useOptionSpacing";
 
 /** The agent in the URL path: /eligibility -> "eligibility"; anything unknown -> the overview. */
@@ -17,6 +18,7 @@ const onDesignPage = () => window.location.pathname.replace(import.meta.env.BASE
 /** The console: a header with one tab per agent across the top, the open agent's screen under it. */
 export default function App() {
   useOptionSpacing();
+  useModernTooltips();
   const [active, setActive] = useState<string | null>(agentFromPath);
   const [paletteOpen, setPaletteOpen] = useState(false);
 

@@ -236,7 +236,12 @@ describe("results page", () => {
     expect(within(rules).getByText("Asha Primary")).toBeInTheDocument();
     expect(within(rules).getByText("Ravi Co")).toBeInTheDocument();
     expect(within(rules).getAllByText("No Risk")).toHaveLength(2);
-    expect(screen.getAllByRole("img", { name: "Overall risk: No Risk" })).toHaveLength(1);
+    // the risk indicator under the AI summary (owner 2026-11-12): one gauge per person ...
+    const indicator = screen.getByRole("region", { name: "At a glance" });
+    expect(within(indicator).getAllByRole("img", { name: "Overall risk: No Risk" })).toHaveLength(2);
+    expect(within(indicator).getByText("Asha Primary")).toBeInTheDocument();
+    // ... and the picked person's full result (its own gauge) in More details
+    expect(document.querySelectorAll(".people-detail [role=img]")).toHaveLength(1);
     expect(document.querySelector(".cu-r-decision.is-pass")?.textContent).toBe("All clear");
     expect(document.querySelector(".petals")).not.toBeNull();
     expect(screen.getByText("No matches found for Applicant and Co-Applicant.")).toBeInTheDocument();
@@ -381,6 +386,20 @@ describe("more than one co-applicant", () => {
     expect(within(document.querySelector(".people-detail") as HTMLElement).getByText("Person 10")).toBeInTheDocument();
     fireEvent.click(within(list).getByRole("tab", { name: "Needs review (1)" }));
     expect(within(list).getAllByRole("tab", { name: /Co-Applicant \d+/ })).toHaveLength(1);
+  });
+
+  it("with many people the risk indicator shows the riskiest four first and the rest behind +N more", async () => {
+    theCase = caseOf(eleven());
+    render(<ResultsPage caseId="CRV-1" config={compact} onBack={() => {}} />);
+    const indicator = await screen.findByRole("region", { name: "At a glance" });
+    const cards = () => indicator.querySelectorAll(".risk-ov-card");
+    expect(cards()).toHaveLength(4);
+    // the one who needs review is in the first four (worst first), not lost behind "+7 more"
+    expect(within(indicator).getByText("Co-Applicant 7")).toBeInTheDocument();
+    fireEvent.click(within(indicator).getByRole("button", { name: "+7 more" }));
+    expect(cards()).toHaveLength(11);
+    fireEvent.click(within(indicator).getByRole("button", { name: "Show fewer" }));
+    expect(cards()).toHaveLength(4);
   });
 
   it("every PDF download is the final report of the whole case", async () => {

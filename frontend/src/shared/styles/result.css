@@ -11,7 +11,10 @@
 }
 :root .cu-ui.cu-r *, :root .cu-ui.cu-r *::before, :root .cu-ui.cu-r *::after { box-sizing: border-box; }
 :root .cu-ui.cu-r :is(p, ol, ul, li, dl, dt, dd) { margin: 0; padding: 0; }
-:root .cu-ui.cu-r svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; }
+:root .cu-ui.cu-r svg:where(:not(.cu-r-agent svg)) { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; }
+/* (owner 2026-11-12) the layout's OWN icons only (:where keeps this rule as weak as before, so the ring /
+   emblem sizes still win): an agent's graphics in its slots (.cu-r-agent -- Crime's risk gauge)
+   keep their size; this rule had squashed the gauge to a 16px mark */
 :root .cu-ui.cu-r .is-mono { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 13px; }
 
 /* ---------- 1. compact header (the band) ---------- */
@@ -777,3 +780,34 @@
 :root .cu-ui.cu-r .cu-r-concerns li.is-fail span.cu-r-proof { color: #B91C1C; }
 :root .cu-ui.cu-r .cu-r-concerns li.is-review span.cu-r-proof { color: #92400E; }
 :root .cu-ui.cu-r .cu-r-concerns li.is-pass span.cu-r-proof { color: #166534; }
+
+/* AT A GLANCE (owner 2026-11-12, Crime's indicator back): each person and their level under the AI summary */
+:root .cu-ui.cu-r .cu-r-glance { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 14px; padding-top: 12px;
+  border-top: 1px dashed #E2E8F0; }
+:root .cu-ui.cu-r .cu-r-glance-title { color: #64748B; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+:root .cu-ui.cu-r .cu-r-glance ul { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+:root .cu-ui.cu-r .cu-r-glance-chip { display: inline-flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 12px; border-radius: 8px;
+  background: #F8FAFC; box-shadow: inset 0 0 0 1px #E2E8F0; font-size: 13px; line-height: 18px; }
+:root .cu-ui.cu-r .cu-r-glance-chip i { flex: none; width: 9px; height: 9px; border-radius: 999px; background: #94A3B8; }
+:root .cu-ui.cu-r .cu-r-glance-who { color: #64748B; font-weight: 600; }
+:root .cu-ui.cu-r .cu-r-glance-name { color: #0F172A; font-weight: 600; overflow-wrap: anywhere; }
+:root .cu-ui.cu-r .cu-r-glance-chip b { padding: 1px 8px; border-radius: 6px; background: #fff; font-size: 12px; font-weight: 700; white-space: nowrap; }
+:root .cu-ui.cu-r .cu-r-glance-chip.is-pass { background: #F0FDF4; box-shadow: inset 0 0 0 1px #BBF7D0; }
+:root .cu-ui.cu-r .cu-r-glance-chip.is-pass i { background: #16A34A; }
+:root .cu-ui.cu-r .cu-r-glance-chip.is-pass b { color: #166534; }
+:root .cu-ui.cu-r .cu-r-glance-chip.is-review { background: #FFFBEB; box-shadow: inset 0 0 0 1px #FDE68A; }
+:root .cu-ui.cu-r .cu-r-glance-chip.is-review i { background: #D97706; }
+:root .cu-ui.cu-r .cu-r-glance-chip.is-review b { color: #92400E; }
+:root .cu-ui.cu-r .cu-r-glance-chip.is-fail { background: #FEF2F2; box-shadow: inset 0 0 0 1px #FECACA; }
+:root .cu-ui.cu-r .cu-r-glance-chip.is-fail i { background: #DC2626; }
+:root .cu-ui.cu-r .cu-r-glance-chip.is-fail b { color: #B91C1C; }
+@media (max-width: 640px) { :root .cu-ui.cu-r .cu-r-glance-chip { width: 100%; } :root .cu-ui.cu-r .cu-r-glance-chip b { margin-left: auto; } }
+
+/* EVERY SUMMARY POINT THE SAME SIZE (owner 2026-11-12: "1 point bada, baaki sab chhote"): the first point no longer gets
+   bigger / bolder text or a bigger number -- one size, one look; the numbers carry the order */
+:root .cu-ui.cu-r .cu-r-points li.is-lead { padding: 10px 12px; background: #fff; box-shadow: inset 3px 0 0 #3B57D6, inset 0 0 0 1px #E2E8F0; }
+:root .cu-ui.cu-r .cu-r-points li > p, :root .cu-ui.cu-r .cu-r-points li.is-lead > p {
+  font: 400 14px/21px "Lexend", sans-serif; color: #1E293B; }
+:root .cu-ui.cu-r .cu-r-points li > span, :root .cu-ui.cu-r .cu-r-points li.is-lead > span {
+  width: 22px; height: 22px; background: #EEF3FF; color: #253DA3; font-size: 12px; font-weight: 700; }
+:root .cu-ui.cu-r .cu-r-points li, :root .cu-ui.cu-r .cu-r-points li.is-lead { background: #fff; box-shadow: inset 3px 0 0 #3B57D6, inset 0 0 0 1px #E2E8F0; }
