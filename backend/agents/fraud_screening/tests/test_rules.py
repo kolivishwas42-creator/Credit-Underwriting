@@ -21,13 +21,15 @@ def _run(bundle, rules=None, identity=None, banks=None, addresses=None):
 # ---- identity helpers ----------------------------------------------------------------------------------------------
 def test_pan_and_aadhaar_issues():
     assert ids.pan_issue("ABCDE1234F") == ""
-    assert ids.pan_issue("ABCD1234F") == "PAN 'ABCD1234F' does not match AAAAA9999A"
+    assert ids.pan_issue("ABCD1234F") == "PAN 'ABCD1234F' has 9 characters; a PAN has 10"
+    assert ids.pan_issue("ABCDE12345") == "PAN 'ABCDE12345' is the wrong type: it must be 5 letters, 4 digits, then 1 letter (like ABCDE1234F)"
     assert ids.pan_issue("XXXXX1234X") == ""                       # masked: not checkable
     assert ids.pan_issue(None) == "" and ids.pan_issue(float("nan")) == ""
     assert ids.aadhaar_issue(PRIMARY_AADHAAR) == ""
     bad = PRIMARY_AADHAAR[:-1] + str((int(PRIMARY_AADHAAR[-1]) + 1) % 10)
-    assert "fails Verhoeff checksum" in ids.aadhaar_issue(bad)
-    assert ids.aadhaar_issue("12345") == "Aadhaar '12345' is not 12 digits"
+    assert "is not a valid number" in ids.aadhaar_issue(bad)
+    assert ids.aadhaar_issue("12345") == "Aadhaar '12345' has 5 digits; it must have 12"
+    assert ids.aadhaar_issue("12345678901A") == "Aadhaar '12345678901A' must have digits only"
     assert ids.aadhaar_issue("XXXX XXXX 1234") == ""
 
 
@@ -64,12 +66,12 @@ def test_identity_indexes_find_conflicts():
     index = ids.build_identity_index(history)
     conflicts = ids.dual_identity_conflicts(PRIMARY_AADHAAR, "ABCDE1234F", "Asha Testwala", index, POLICY.name_match,
                                             current_customer_id=9001)
-    assert len(conflicts) == 2 and conflicts[0].startswith("Aadhaar matches prior application_id=7")
+    assert len(conflicts) == 2 and conflicts[0].startswith("Aadhaar was used before under a different name: application 7")
     assert ids.dual_identity_conflicts(PRIMARY_AADHAAR, None, "Asha", index, POLICY.name_match,
                                        current_customer_id=77) == []
     dob_index = ids.build_dob_index(history)
     assert ids.dob_consistency_conflicts(None, "ABCDE1234F", date(1988, 3, 14), dob_index) == [
-        "PAN=ABCDE1234F current DOB=1988-03-14 but history has DOB(s) 1979-01-01"]
+        "PAN ABCDE1234F has date of birth 1988-03-14 here, but earlier records show 1979-01-01"]
 
 
 # ---- engine ----------------------------------------------------------------------------------------------------------
@@ -95,7 +97,7 @@ def test_identity_swap_is_high():
     assert result["flagged_rules"] == ["Rule2_CoApp_Identity_Swap"]
     assert result["risk_level"] == "HIGH"
     assert _row(result, "Rule2_CoApp_Identity_Swap")["message"] == (
-        "Same PAN 'ABCDE1234F' used by primary name='Asha Testwala' and co-app name='Vikram Fictional'")
+        "The same PAN 'ABCDE1234F' is used by applicant 'Asha Testwala' and co-applicant 'Vikram Fictional'")
 
 
 def test_shared_bank_account_with_another_customer_is_critical():
@@ -104,7 +106,7 @@ def test_shared_bank_account_with_another_customer_is_critical():
     assert result["flagged_rules"] == ["Rule6_Shared_Bank_Account"]
     assert result["risk_level"] == "CRITICAL"
     assert _row(result, "Rule6_Shared_Bank_Account")["message"] == (
-        "account=123456789012 also on customer_id=4242 application_id=88 participant_id=5")
+        "bank account 123456789012 is also used by customer 4242 in application 88 (participant 5)")
 
 
 def test_three_medium_rules_escalate_to_high():
@@ -123,9 +125,12 @@ def test_three_medium_rules_escalate_to_high():
     assert sorted(result["flagged_rules"]) == ["Rule15_Address_Reuse", "Rule16_Relationship_Fraud",
                                                "Rule4_Name_Age_Tweak"]
     assert result["risk_level"] == "HIGH"
-    assert _row(result, "Rule15_Address_Reuse")["message"].startswith(
-        "• score=1.00 | application=OLD-0009 | customer_id=3131 | no family link")
-    assert "relation='friend'" in _row(result, "Rule16_Relationship_Fraud")["message"]
+    assert _row(result, "Rule15_Address_Reuse")["message"] == "1 earlier application uses this address with no family link"
+    # the hit as an object: one value per key
+    rec = _row(result, "Rule15_Address_Reuse")["records"][0]
+    assert (rec["score"], rec["application"], rec["customer_id"]) == (1.0, "OLD-0009", 3131)
+    assert rec["family_link"].startswith("None found") and "12 Sample Street" in rec["address"]
+    assert "relation: friend" in _row(result, "Rule16_Relationship_Fraud")["message"]
 
 
 # ---- the rule changes ported from the former fraud_agent (2026-11-03/04) ---------------------------------------------
@@ -142,7 +147,7 @@ def test_rule16_flags_shared_address_whatever_the_relation_unless_configured():
     bundle["co_applicants"][0]["addresses"] = copy.deepcopy(bundle["primary"]["addresses"])   # relation: spouse
     result = _run(bundle)
     assert "Rule16_Relationship_Fraud" in result["flagged_rules"]
-    assert "share the same address (score=1.00 >= 0.95, relation='spouse')" in _row(
+    assert "share the same address (match 100%; limit 95%; relation: spouse)" in _row(
         result, "Rule16_Relationship_Fraud")["message"]
     rules = rule_config()
     rules["Rule16_Relationship_Fraud"]["config_json"]["ignore_family_relation"] = True
@@ -162,7 +167,7 @@ def test_rule4_tweaked_name_with_another_dob_in_history():
                 "DOB": "1979-01-01"}]
     result = _run(clean_bundle(), identity=history)
     assert "Rule4_Name_Age_Tweak" in result["flagged_rules"]
-    assert "with DOB 1988-03-14" in _row(result, "Rule4_Name_Age_Tweak")["message"]
+    assert "with date of birth 1988-03-14" in _row(result, "Rule4_Name_Age_Tweak")["message"]
     history[0]["DOB"] = "1988-03-14"                                       # same DOB: not a tweak
     assert "Rule4_Name_Age_Tweak" not in _run(clean_bundle(), identity=history)["flagged_rules"]
 
@@ -172,7 +177,7 @@ def test_rule5_any_earlier_record_counts_and_same_customer_is_configurable():
                 "PAN_Number": "ABCDE1234F"}]
     result = _run(clean_bundle(), identity=history)
     assert _row(result, "Rule5_Dual_Identity_Mismatch")["message"] == (
-        "PAN already has a record in application OLD-0007 (customer_id=9001, name='ASHA TESTWALA')")
+        "PAN already has a record in application OLD-0007 (customer 9001, name 'ASHA TESTWALA')")
     rules = rule_config()
     rules["Rule5_Dual_Identity_Mismatch"]["config_json"] = {"include_same_customer": False}
     assert "Rule5_Dual_Identity_Mismatch" not in _run(clean_bundle(), rules, identity=history)["flagged_rules"]
@@ -193,7 +198,7 @@ def test_rule9_checks_the_co_applicant_too():
     bundle = clean_bundle()
     bundle["co_applicants"][0]["details"]["age"] = 20
     result = _run(bundle)
-    assert _row(result, "Rule9_Age_DOB_Mismatch")["message"].startswith("Co-applicant: stated age=20")
+    assert _row(result, "Rule9_Age_DOB_Mismatch")["message"].startswith("Co-applicant: the stated age is 20")
 
 
 def test_rule12_ids_and_mobile_of_every_earlier_participant():
@@ -240,7 +245,7 @@ def test_synthetic_identity_needs_a_format_problem_and_a_second_signal():
     result = _run(bundle)
     assert "Rule13_Synthetic_Identity" in result["flagged_rules"]
     assert _row(result, "Rule13_Synthetic_Identity")["message"] == (
-        "Weak signals: PAN 'BAD' does not match AAAAA9999A; no_prior_applications_for_customer")
+        "Signs found: invalid PAN and no earlier applications from this customer")
     assert _row(result, "Rule1_PAN_Aadhaar_Mismatch")["triggered"] is True
     # an existing customer with the same format problem has only one signal
     history = [{"customer_id": 9001, "application_id": 3, "Name": "Asha Testwala"}]

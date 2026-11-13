@@ -42,6 +42,17 @@ def test_verification_and_rule_configs(settings, sample_request):
                   json={**sample_request, "application_id": 5}).status_code == 404
 
 
+def test_participants_of_an_application_number(settings):
+    c = client(FakeRepository(settings), settings)
+    res = c.get(f"{BASE}/applications/APP-TEST-1001/participants")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["application"] == {"application_id": 1001, "application_number": "APP-TEST-1001"}
+    assert body["participants"] == [{"participant_id": 2001, "name": "Mr Test Applicant",
+                                     "applicant_type": "Primary Applicant", "is_primary": True}]
+    assert c.get(f"{BASE}/applications/NOPE/participants").status_code == 404
+
+
 def test_database_down_is_503_without_details(settings, sample_request):
     class Down(FakeRepository):
         def fetch_application(self, application_id):

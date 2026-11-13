@@ -29,6 +29,10 @@ class RepositoryUnavailable(RuntimeError):
 class RuleRepository(Protocol):
     def fetch_application(self, application_id: int) -> dict[str, Any] | None: ...
 
+    def fetch_application_by_number(self, application_number: str) -> dict[str, Any] | None: ...
+
+    def list_participants(self, application_id: int) -> list[dict[str, Any]]: ...
+
     def fetch_participant(self, application_id: int, participant_id: int) -> dict[str, Any] | None: ...
 
     def fetch_participant_addresses(self, participant_id: int) -> list[dict[str, Any]]: ...
@@ -95,6 +99,42 @@ class PostgresRepository:
             WHERE application_id = %s
         """).format(loan_applications=self._los("loan_applications"))
         return self._run(lambda conn: conn.execute(query, (application_id,)).fetchone())
+
+    def fetch_application_by_number(self, application_number: str) -> dict[str, Any] | None:
+        from psycopg import sql
+
+        query = sql.SQL("""
+            SELECT application_id, application_number, customer_id, stage, status
+            FROM {loan_applications}
+            WHERE application_number = %s
+        """).format(loan_applications=self._los("loan_applications"))
+        return self._run(lambda conn: conn.execute(query, (application_number,)).fetchone())
+
+    def list_participants(self, application_id: int) -> list[dict[str, Any]]:
+        """The people of an application (primary first), with the name parts the service puts together."""
+        from psycopg import sql
+
+        query = sql.SQL("""
+            SELECT
+                ap.participant_id,
+                ap.applicant_type,
+                ap.applicant_category,
+                ap.is_primary,
+                c.full_name AS customer_full_name,
+                iad.salutation,
+                iad.first_name,
+                iad.middle_name,
+                iad.last_name
+            FROM {participants} AS ap
+            LEFT JOIN {customers} AS c
+                ON c.customer_id = ap.customer_id
+            LEFT JOIN {details} AS iad
+                ON iad.participant_id = ap.participant_id
+            WHERE ap.application_id = %s
+            ORDER BY ap.is_primary DESC NULLS LAST, ap.participant_id
+        """).format(participants=self._los("application_participants"), customers=self._los("customers"),
+                    details=self._los("individual_applicant_details"))
+        return self._run(lambda conn: list(conn.execute(query, (application_id,)).fetchall()))
 
     def fetch_participant(self, application_id: int, participant_id: int) -> dict[str, Any] | None:
         from psycopg import sql

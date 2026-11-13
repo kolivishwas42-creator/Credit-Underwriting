@@ -28,7 +28,7 @@ body {
 .nav-item .mantine-NavLink-label { font-size: 12.5px; line-height: 1.25; }
 .nav-item .mantine-NavLink-section { margin-inline-end: 8px; }
 .nav-dot { width: 5px; height: 5px; border-radius: 50%; background: #c5cfe0; margin: 0 4px; }
-.nav-head { font-size: 10.5px; letter-spacing: .08em; margin: 8px 0 2px; padding: 0 10px; }
+.nav-head { font-size: 12px; letter-spacing: .08em; margin: 8px 0 2px; padding: 0 10px; }
 @media (max-height: 640px) { .nav-item { padding: 2px 10px; } .nav-item .mantine-NavLink-label { font-size: 12px; } }
 .los-main { min-height: 100vh; }
 
@@ -117,7 +117,7 @@ body {
   box-shadow: inset 0 0 0 1px #dce4fb, 0 14px 32px -16px rgba(15, 23, 42, .45); }
 .loader-icon { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; color: #fff; background: var(--grad);
   animation: pop .5s cubic-bezier(.2, .9, .3, 1.35); }
-.loader-text { font-size: 11.5px; font-weight: 800; color: #1e3a8a; line-height: 1.25; animation: rise-in .5s ease-out; }
+.loader-text { font-size: 12px; font-weight: 800; color: #1e3a8a; line-height: 1.25; animation: rise-in .5s ease-out; }
 .loader-steps { display: flex; gap: 3px; }
 .loader-steps i { width: 5px; height: 5px; border-radius: 50%; background: #cbd5e1; transition: all .3s; }
 .loader-steps i.done { background: #67e8f9; }
@@ -177,7 +177,7 @@ body { background:
 .side-link { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 12px; color: #c7d2fe; text-decoration: none; }
 .side-link:hover, .side-link.is-on { background: rgba(255, 255, 255, .08); color: #fff; }
 .side-user { padding: 6px 12px; }
-.side-avatar { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 800;
+.side-avatar { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800;
   color: #fff; background: rgba(255, 255, 255, .14); }
 
 /* the case strip */
@@ -221,7 +221,7 @@ body { background:
 .loader.is-compact { width: 120px; height: 120px; }
 .loader.is-compact .loader-core { inset: 13px; }
 .loader.is-compact .loader-icon { width: 26px; height: 26px; }
-.loader.is-compact .loader-text { font-size: 10.5px; }
+.loader.is-compact .loader-text { font-size: 12px; }
 
 /* =====================================================================================================================
    v5 -- THEMES + LESS SCROLLING (owner 2026-10-29: "thoda aur kam scrollable, colour / theme different").
@@ -429,17 +429,17 @@ body { background: radial-gradient(800px 380px at 105% -80px, var(--page-tint), 
 .fcard:focus-within { border-color: color-mix(in srgb, var(--acc-1) 40%, #fff); box-shadow: 0 12px 32px rgba(59, 87, 214, .14); }
 .fcard-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--acc-1) 8%, #eef0f6); background: linear-gradient(180deg, color-mix(in srgb, var(--acc-1) 4%, #fff), #fff); }
-.fcard-num { font: 800 11px/1 "JetBrains Mono", Consolas, monospace; color: var(--acc-1); letter-spacing: .04em; }
+.fcard-num { font: 800 12px/1 "JetBrains Mono", Consolas, monospace; color: var(--acc-1); letter-spacing: .04em; }
 .fcard-icon { width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center; color: #fff;
   background: linear-gradient(140deg, var(--acc-1), var(--acc-2)); box-shadow: 0 4px 10px var(--acc-soft); }
 .fcard-title { color: var(--acc-ink); flex: 1; }
-.fcard-count { font-size: 11px; font-weight: 800; padding: 3px 9px; border-radius: 999px; color: var(--acc-ink); background: var(--acc-soft); }
+.fcard-count { font-size: 12px; font-weight: 800; padding: 3px 9px; border-radius: 999px; color: var(--acc-ink); background: var(--acc-soft); }
 .fcard-count.is-full { color: #065f46; background: #d1fae5; }
 .fcard-body { padding: 14px 16px 16px; }
 .form-pair .fcard { height: 100%; }
 .form-pair > :nth-child(2) { animation-delay: .06s; }
 
-.soft-label { font-size: 11.5px !important; font-weight: 700 !important; color: #5b6478 !important; letter-spacing: .01em; margin-bottom: 4px; }
+.soft-label { font-size: 12px !important; font-weight: 700 !important; color: #5b6478 !important; letter-spacing: .01em; margin-bottom: 4px; }
 .soft-input { height: 40px; min-height: 40px; background: #f6f7fb !important; border: 1px solid transparent !important; border-radius: 10px !important;
   font-weight: 600; color: #111827; transition: background .2s, border-color .2s, box-shadow .2s; }
 .soft-input:hover { background: #f0f2f9 !important; }
@@ -619,7 +619,7 @@ svg.beat { display: inline-block; }
   line-height: 1.55; font-weight: 600; color: var(--acc-ink); background: color-mix(in srgb, var(--acc-1) 6%, #fff);
   border-left: 4px solid var(--acc-1); }
 .report-quote::before { content: "\201C"; position: absolute; left: 12px; top: -4px; font-size: 42px; line-height: 1; color: var(--acc-2);
-  font-family: Georgia, serif; }
+  font-family: var(--font-display); }
 .report-file { padding: 12px 14px; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--acc-1) 18%, #e7eaf3);
   background: linear-gradient(120deg, #fff, color-mix(in srgb, var(--acc-1) 5%, #fff)); }
 .report-answers .mantine-Accordion-item { background: #fff; }
@@ -653,7 +653,7 @@ svg.beat { display: inline-block; }
 /* SBFC, written (owner 2026-10-30: "logo loader ka accha nahi, more unique"): the outline draws itself, then fills; an
    amber swoosh is drawn under it; the cycle repeats */
 .lv-brand { width: 132px; height: 34px; overflow: visible; display: block; }
-.lv-brand-word { font: 900 22px/1 Manrope, "Segoe UI", sans-serif; letter-spacing: 5px; stroke-width: 1.1;
+.lv-brand-word { font: 700 22px/1 var(--font-display); letter-spacing: 5px; stroke-width: 1.1;
   stroke-dasharray: 260; stroke-dashoffset: 260; fill-opacity: 0; paint-order: stroke;
   animation: brand-write 2.6s ease-in-out infinite; }
 .lv-brand-swoosh { fill: none; stroke: var(--warm); stroke-width: 2.4; stroke-linecap: round; stroke-dasharray: 100;

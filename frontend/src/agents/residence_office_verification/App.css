@@ -26,7 +26,7 @@
   font-size: 12px;
   line-height: 16px;
   font-weight: 600;
-  letter-spacing: 0.09em;
+  letter-spacing: .09em;
   text-transform: uppercase;
   color: var(--text-secondary);
 }
@@ -111,7 +111,7 @@ h2 {
   font-size: 12px;
   line-height: 16px;
   font-weight: 600;
-  letter-spacing: 0.09em;
+  letter-spacing: .09em;
   text-transform: uppercase;
   color: var(--text-secondary);
 }
@@ -148,6 +148,8 @@ code {
 }
 
 .field-wide { grid-column: 1 / -1; }
+.field small { min-height: 1.1em; font-size: 0.8rem; color: var(--text-muted, inherit); }
+.field small.field-error { color: var(--error-text); }
 
 .field label {
   font-size: 13px;

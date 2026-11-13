@@ -18,8 +18,8 @@
   --radius: 16px; --radius-sm: 8px;
   --on-ink: #ffffff; --ink-fill: #18181b; --ink-fill-hover: #27272a; --link: #4f5ac7;
   --band: #18181b; --scrim: rgba(24, 24, 27, .5);
-  --font-display: "Space Grotesk", "Inter", -apple-system, "Segoe UI", sans-serif;
-  --font: "Lexend", "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: var(--font-display);
+  --font: var(--font-body);
   --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {

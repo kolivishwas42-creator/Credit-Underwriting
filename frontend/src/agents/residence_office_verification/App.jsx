@@ -49,8 +49,9 @@ function App() {
   const [activeTab, setActiveTab] = useState('verification') // verification | rules
 
   const [form, setForm] = useState({
-    application_id: 2,
-    participant_id: 2,
+    application_number: '',   // typed by the officer; the application and its people are looked up from it
+    application_id: '',       // found from the number (sent to the API, never typed)
+    participant_id: '',       // chosen from the application's people (sent to the API, never typed)
     verification_type: 'RESIDENCE',
     vendor_name: 'Manual Vendor Entry',
     vendor_response: {
@@ -83,9 +84,48 @@ function App() {
   const [configError, setConfigError] = useState(null)
   const [configMessage, setConfigMessage] = useState(null)
 
+  // The application is looked up by its number; its participants fill the dropdown.
+  const [participants, setParticipants] = useState([])
+  const [lookup, setLookup] = useState({ state: 'idle', message: '' }) // idle | loading | found | error
+
+  useEffect(() => {
+    const number = form.application_number.trim()
+    setParticipants([])
+    setForm((prev) => (prev.application_id === '' && prev.participant_id === '' ? prev : { ...prev, application_id: '', participant_id: '' }))
+    if (!number) {
+      setLookup({ state: 'idle', message: '' })
+      return undefined
+    }
+    let cancelled = false
+    setLookup({ state: 'loading', message: 'Looking up the application…' })
+    const timer = setTimeout(async () => {
+      try {
+        const res = await axios.get(`${API_BASE}/applications/${encodeURIComponent(number)}/participants`)
+        if (cancelled) return
+        const people = res.data?.participants || []
+        setParticipants(people)
+        const first = people.find((p) => p.is_primary) || people[0]
+        setForm((prev) => ({ ...prev, application_id: res.data.application.application_id,
+          participant_id: first ? first.participant_id : '' }))
+        setLookup(people.length
+          ? { state: 'found', message: '' }
+          : { state: 'error', message: 'This application has no participants.' })
+      } catch (err) {
+        if (cancelled) return
+        setLookup({ state: 'error', message: err.response?.status === 404
+          ? 'Application number was not found.'
+          : (err.response?.data?.detail || err.message || 'Could not look up the application.') })
+      }
+    }, 400)
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [form.application_number])
+
+  const participantLabel = (p) => [p.name || `Participant ${p.participant_id}`, p.applicant_type].filter(Boolean).join(' · ')
+
   const handleChange = (e) => {
     const { name, value } = e.target
-    if (name.startsWith('vendor_')) {
+    // vendor_name is the vendor's own field; the other vendor_* fields are answers inside vendor_response
+    if (name.startsWith('vendor_') && name !== 'vendor_name') {
       const key = name.replace('vendor_', '')
       setForm((prev) => ({
         ...prev,
@@ -97,7 +137,7 @@ function App() {
     } else {
       setForm((prev) => ({
         ...prev,
-        [name]: name.includes('id') ? Number(value) || value : value,
+        [name]: name === 'participant_id' ? Number(value) || '' : value,
       }))
     }
   }
@@ -127,7 +167,9 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
       })
       setResult(res.data)
-      setSent(payload)
+      // what the result page names (the number and the person's name; the API itself only takes the ids)
+      const person = participants.find((p) => p.participant_id === payload.participant_id)
+      setSent({ ...payload, application_number: form.application_number.trim(), participant_name: person?.name || null })
       setAiSummary(res.data.ai_summary || '')
       setAiModel(res.data.ai_summary_model || '')
     } catch (err) {
@@ -236,11 +278,12 @@ function App() {
   const configPager = usePagination(ruleRows)
 
   return (
-    <AgentFrame agent="residence_office_verification" caseLabel={result ? ((sent || form)?.application_id || undefined) : undefined}
+    <AgentFrame agent="residence_office_verification" caseLabel={result ? ((sent || form)?.application_number || undefined) : undefined}
       items={[
         { id: "verification", label: "Verification", icon: "file-check", active: activeTab === 'verification' && !screen.onResult,
           onSelect: () => { setActiveTab('verification'); screen.back() } },
-        { id: "rules", label: "Rule config", icon: "list", active: activeTab === 'rules', onSelect: () => setActiveTab('rules') },
+        // "Rule config" sidebar item hidden for now (owner request) -- uncomment to show it again.
+        // { id: "rules", label: "Rule config", icon: "list", active: activeTab === 'rules', onSelect: () => setActiveTab('rules') },
         ...(screen.hasResult ? [{ id: "result", label: "Result", icon: "sparkle", active: activeTab === 'verification' && screen.onResult,
           onSelect: () => { setActiveTab('verification'); screen.show() } }] : []),
       ]}>
@@ -255,27 +298,38 @@ function App() {
               <form onSubmit={handleSubmit} className="form">
                 <div className="form-grid">
                   <div className="field">
-                    <label htmlFor="application_id">Application ID *</label>
+                    <label htmlFor="application_number">Application number *</label>
                     <input
-                      id="application_id"
-                      name="application_id"
-                      type="number"
-                      value={form.application_id}
+                      id="application_number"
+                      name="application_number"
+                      type="text"
+                      placeholder="e.g. LOS-DUMMY-0045"
+                      value={form.application_number}
                       onChange={handleChange}
+                      autoComplete="off"
+                      aria-describedby="application_lookup"
                       required
                     />
+                    <small id="application_lookup" role="status" className={lookup.state === 'error' ? 'field-error' : undefined}>
+                      {lookup.message}
+                    </small>
                   </div>
 
                   <div className="field">
-                    <label htmlFor="participant_id">Participant ID *</label>
-                    <input
+                    <label htmlFor="participant_id">Participant *</label>
+                    <select
                       id="participant_id"
                       name="participant_id"
-                      type="number"
                       value={form.participant_id}
                       onChange={handleChange}
+                      disabled={participants.length === 0}
                       required
-                    />
+                    >
+                      {participants.length === 0 && <option value="">Enter an application number first</option>}
+                      {participants.map((p) => (
+                        <option key={p.participant_id} value={p.participant_id}>{participantLabel(p)}</option>
+                      ))}
+                    </select>
                   </div>
 
                   <div className="field">
@@ -455,7 +509,7 @@ function App() {
                 </div>
 
                 <div className="actions">
-                  <button type="submit" className="btn primary cta" disabled={loading} aria-busy={loading}>
+                  <button type="submit" className="btn primary cta" disabled={loading || !form.application_id || !form.participant_id} aria-busy={loading}>
                     {loading && <span className="spinner" aria-hidden="true" />}
                     {loading ? 'Running verification…' : 'Run verification'}
                   </button>
@@ -471,7 +525,7 @@ function App() {
             </section>
             </FormArea>
 
-            {result && screen.onResult && <BackToForm onBack={screen.back} note={(sent || form)?.application_id || (sent || form)?.case_id} />}
+            {result && screen.onResult && <BackToForm onBack={screen.back} note={(sent || form)?.application_number || (sent || form)?.case_id} />}
             {result && screen.onResult && (
               <div className="result-section">
                 <ResultPage {...toResultPage(result, sent || form, aiSummary)} />

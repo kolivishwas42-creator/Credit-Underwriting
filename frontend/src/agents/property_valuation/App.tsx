@@ -6,7 +6,8 @@ import { ValuationTab } from "./components/ValuationTab";
 import { api } from "./services/api";
 
 type Tab = "valuation" | "rules" | "history";
-const TABS: [Tab, string][] = [["valuation", "Valuation workflow"], ["rules", "Rule configuration"], ["history", "History & analytics"]];
+// "Rule configuration" sidebar item hidden for now (owner request) -- uncomment to show it again.
+const TABS: [Tab, string][] = [["valuation", "Valuation workflow"], /* ["rules", "Rule configuration"], */ ["history", "History & analytics"]];
 const TAB_ICON: Record<Tab, string> = { valuation: "building", rules: "list", history: "clock" };
 
 /** a short message at the bottom of the screen for 3.5 s */

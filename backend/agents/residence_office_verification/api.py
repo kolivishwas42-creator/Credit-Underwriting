@@ -2,6 +2,7 @@
 Residence / office verification API -- under Credit Underwriting: /api/v1/credit/residence-office-verification
 (main.py mounts this router under /api/v1 with the LOS token, like every agent).
 
+    GET  /applications/{application_number}/participants   the application and its people (e.g. LOS-DUMMY-0045)
     POST /residence-verification      evaluate the vendor response against the declared address; stores the run;
                                       adds ai_summary (the local model explains the triggered rules)
     GET  /rule-configs?verification_type=RESIDENCE|OFFICE
@@ -34,6 +35,18 @@ def get_service() -> ResidenceVerificationService:
 
 def _unavailable(exc: RepositoryUnavailable, detail: str) -> HTTPException:
     return HTTPException(status_code=503, detail=str(exc) if exc.configuration else detail)
+
+
+@router.get("/applications/{application_number}/participants")
+def application_participants(application_number: str,
+                             service: ResidenceVerificationService = Depends(get_service)) -> dict[str, Any]:
+    """Look an application up by its number; returns its id and its participants (id, name, type, primary)."""
+    try:
+        return service.participants_of(application_number)
+    except VerificationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    except RepositoryUnavailable as exc:
+        raise _unavailable(exc, "Database connection/query failed while loading the application.") from exc
 
 
 @router.post("/residence-verification")

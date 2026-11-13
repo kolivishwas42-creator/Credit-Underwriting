@@ -47,6 +47,12 @@ class FakeRepository:
     def fetch_application(self, application_id):
         return self.applications.get(application_id)
 
+    def fetch_application_by_number(self, application_number):
+        return next((a for a in self.applications.values() if a["application_number"] == application_number), None)
+
+    def list_participants(self, application_id):
+        return [p for (app_id, _), p in self.participants.items() if app_id == application_id]
+
     def fetch_participant(self, application_id, participant_id):
         return self.participants.get((application_id, participant_id))
 

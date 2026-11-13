@@ -72,6 +72,14 @@ export interface RuleRow {
   values?: Fact[];
   /** a small table shown when the row is opened, above the values (e.g. a comparison part by part) */
   table?: { columns: string[]; rows: string[][] };
+  /** fields compared, each as two boxes side by side (left | right), shown when the row is opened */
+  compare?: { field: string; left: string; right: string }[];
+  /** matching records, each a list of label / value lines shown one above the other when the row is opened */
+  records?: { label: string; value: string }[][];
+  /** labels over the two boxes of `compare` (default "This application" | "Compared with") */
+  compareLabels?: [string, string];
+  /** the detail line shows only when the row is opened (the row is collapsed to its name until clicked) */
+  detailOnOpen?: boolean;
 }
 
 export interface RulesProps {
@@ -112,6 +120,15 @@ export interface ActionItem {
   disabled?: boolean;
 }
 
+/** An agent's own tab in the result's tab rail (next to Overview / Rules & Calculations). */
+export interface ExtraTab {
+  id: string;
+  label: string;
+  icon?: string;
+  count?: number;
+  content: ReactNode;
+}
+
 export interface ResultPageProps {
   basic: BasicCardProps;
   summary?: SummaryProps;
@@ -122,6 +139,6 @@ export interface ResultPageProps {
   children?: ReactNode;
   /** open "More details" from the start (e.g. it holds the decision remarks) */
   detailsOpen?: boolean;
-  /** the agent's own picture, shown in Overview right under the AI summary (e.g. Crime's risk gauge per person) */
-  overview?: ReactNode;
+  /** the agent's own tabs, shown in the same rail as the common ones */
+  extraTabs?: ExtraTab[];
 }

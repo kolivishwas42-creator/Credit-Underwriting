@@ -59,7 +59,7 @@ INSERT INTO rule_config
     (rule_key, rule_id, rule_name, description, severity, enabled, is_implementable, config_json, sort_order)
 VALUES
     ('Rule1_PAN_Aadhaar_Mismatch', 'Rule 1', 'Primary PAN/Aadhaar invalid',
-     'Primary applicant PAN or Aadhaar number is malformed (PAN AAAAA9999A, Aadhaar 12 digits).',
+     'Primary applicant PAN or Aadhaar number is invalid (a PAN is 10 characters: 5 letters, 4 digits, 1 letter; an Aadhaar is 12 digits).',
      'High', TRUE, TRUE, '{}', 10),
     ('Rule1_CoApp_PAN_Aadhaar_Mismatch', 'Rule 1', 'Co-applicant PAN/Aadhaar invalid',
      'Co-applicant PAN or Aadhaar number is malformed.',

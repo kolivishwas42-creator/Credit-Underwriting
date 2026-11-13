@@ -11,7 +11,7 @@ body { background: var(--canvas); color: var(--text-primary); font-family: var(-
   font-family: var(--font-body); color: var(--text-primary); }
 #cu-shell :where(*) { box-sizing: border-box; }
 #cu-shell kbd { padding: 1px 6px; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px;
-  background: var(--surface); color: var(--text-secondary); font: 500 10.5px var(--font-body); white-space: nowrap; }
+  background: var(--surface); color: var(--text-secondary); font: 500 12px var(--font-body); white-space: nowrap; }
 
 /* ---------- header ---------- */
 #cu-shell .cu-top { position: relative; z-index: 30; min-width: 0; background: var(--surface); border-bottom: 1px solid var(--border);
@@ -25,8 +25,8 @@ body { background: var(--canvas); color: var(--text-primary); font-family: var(-
 /* the console mark keeps its size on every tab: an agent's blanket "svg { width: 18px }" (Dedupe) shrank it */
 #cu-shell .cu-top svg.cu-logo { width: 32px; height: 32px; }
 #cu-shell .cu-brand-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
-#cu-shell .cu-brand-text b { font: 600 15px var(--font-display); white-space: nowrap; }
-#cu-shell .cu-brand-text span { color: var(--text-secondary); font-size: 11.5px; white-space: nowrap; }
+#cu-shell .cu-brand-text b { font: 600 15px var(--font-body); white-space: nowrap; font-variant-numeric: tabular-nums;}
+#cu-shell .cu-brand-text span { color: var(--text-secondary); font-size: 12px; white-space: nowrap; }
 #cu-shell .cu-bar-tools { display: flex; align-items: center; gap: 10px; min-width: 0; }
 #cu-shell .cu-find { display: inline-flex; align-items: center; gap: 8px; width: 260px; height: 36px; margin: 0;
   padding: 0 8px 0 10px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--canvas);
@@ -85,8 +85,8 @@ body { background: var(--canvas); color: var(--text-primary); font-family: var(-
 #cu-shell .cu-home { flex: 1; min-height: 0; overflow: auto; padding: 24px 28px; }
 #cu-shell .cu-home-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
   max-width: 1400px; margin: 0 auto 18px; }
-#cu-shell .cu-eyebrow { margin: 0 0 4px; color: var(--accent-text); font: 600 11px var(--font-body);
-  letter-spacing: .08em; text-transform: uppercase; }
+#cu-shell .cu-eyebrow { margin: 0 0 4px; color: var(--accent-text); font: 600 12px var(--font-body);
+  letter-spacing: .09em; text-transform: uppercase; }
 #cu-shell .cu-home .cu-h1 { margin: 0; font: 600 24px/1.2 var(--font-display); letter-spacing: -.01em; }
 #cu-shell .cu-lede { margin: 6px 0 0; color: var(--text-secondary); font-size: 14px; }
 #cu-shell .cu-board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; max-width: 1400px;
@@ -95,8 +95,8 @@ body { background: var(--canvas); color: var(--text-primary); font-family: var(-
   border-radius: var(--r-lg); background: var(--surface); }
 #cu-shell .cu-stage-head { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 12px; min-height: 52px; }
 #cu-shell .cu-step { flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; margin-top: 1px;
-  border-radius: 50%; background: var(--cu-action, #253DA3); color: var(--on-ink); font: 600 12px var(--font-display); }
-#cu-shell .cu-stage .cu-h2 { margin: 0; font: 600 15px/1.3 var(--font-display); }
+  border-radius: 50%; background: var(--cu-action, #253DA3); color: var(--on-ink); font: 600 12px var(--font-body); }
+#cu-shell .cu-stage .cu-h2 { margin: 0; font: 600 18px/26px var(--font-display); }
 #cu-shell .cu-stage-head .cu-note { margin: 2px 0 0; color: var(--text-secondary); font-size: 12.5px; line-height: 1.4; }
 #cu-shell .cu-stage-cards { display: flex; flex-direction: column; gap: 8px; }
 #cu-shell .cu-card { display: flex; align-items: center; gap: 12px; width: 100%; margin: 0; padding: 12px;
@@ -109,7 +109,7 @@ body { background: var(--canvas); color: var(--text-primary); font-family: var(-
 #cu-shell .cu-card:hover .cu-card-icon { background: var(--accent); color: var(--on-color, #fff); }
 #cu-shell .cu-card-icon svg { width: 19px; height: 19px; }
 #cu-shell .cu-card-text { flex: 1; min-width: 0; }
-#cu-shell .cu-card-text b { display: block; font: 600 14px var(--font-display); }
+#cu-shell .cu-card-text b { display: block; font: 600 14px var(--font-body); font-variant-numeric: tabular-nums;}
 #cu-shell .cu-card-text span { display: block; margin-top: 2px; color: var(--text-secondary); font-size: 12.5px; line-height: 1.35; }
 #cu-shell .cu-card-go { flex: none; display: grid; color: var(--text-disabled); transition: transform .12s ease, color .12s ease; }
 #cu-shell .cu-card:hover .cu-card-go { color: var(--accent); transform: translateX(2px); }
@@ -133,9 +133,9 @@ body { background: var(--canvas); color: var(--text-primary); font-family: var(-
 #cu-shell .cu-palette-list [role=option] svg { flex: none; width: 18px; height: 18px; color: var(--icon-default); }
 #cu-shell .cu-palette-list [role=option].is-on svg { color: var(--accent); }
 #cu-shell .cu-palette-text { flex: 1; min-width: 0; }
-#cu-shell .cu-palette-text b { display: block; font: 600 13.5px var(--font-display); }
+#cu-shell .cu-palette-text b { display: block; font: 600 13.5px var(--font-body); font-variant-numeric: tabular-nums;}
 #cu-shell .cu-palette-text span { display: block; color: var(--text-secondary); font-size: 12px; }
-#cu-shell .cu-palette-group { color: var(--text-secondary); font-size: 11.5px; }
+#cu-shell .cu-palette-group { color: var(--text-secondary); font-size: 12px; }
 #cu-shell .cu-palette-empty { color: var(--text-secondary); font-size: 13px; cursor: default; }
 
 /* ---------- responsive ---------- */
@@ -204,7 +204,7 @@ body { background: var(--canvas); color: var(--text-primary); font-family: var(-
   border-radius: 20px; background: var(--surface); box-shadow: var(--e-lg, 0 12px 32px rgba(16, 24, 40, .16)); }
 @keyframes cu-fade { from { opacity: 0; } }
 
-:root .cu-ui .cu-error-title { color: var(--text-primary); font: 600 15px var(--font-display); }
+:root .cu-ui .cu-error-title { color: var(--text-primary); font: 600 18px/26px var(--font-display); }
 :root .cu-ui .cu-retry { height: 32px; padding: 0 14px; border: 0; border-radius: var(--r-sm); background: var(--cu-action, #253DA3);
   color: var(--on-ink); font: 500 13px var(--font-body); cursor: pointer; }
 
@@ -236,12 +236,12 @@ body { background: var(--canvas); color: var(--text-primary); font-family: var(-
 :root .cu-ui.cu-backbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; width: 100%; max-width: 1560px;
   margin: 0 auto 12px; padding: 0; }
 :root .cu-ui .cu-backbar-btn { display: inline-flex; align-items: center; gap: 8px; height: 38px; margin: 0; padding: 0 16px;
-  border: 1px solid #DBE4FF; border-radius: 999px; background: #fff; color: #253DA3; font: 600 14px "Lexend", sans-serif;
+  border: 1px solid #DBE4FF; border-radius: 999px; background: #fff; color: #253DA3; font: 600 14px var(--font-body);
   cursor: pointer; box-shadow: 0 1px 2px rgba(15, 23, 42, .06); }
 :root .cu-ui .cu-backbar-btn svg { width: 16px; height: 16px; transform: rotate(180deg); }
 :root .cu-ui .cu-backbar-btn:hover { background: #EEF3FF; border-color: #B8C8FF; }
 :root .cu-ui .cu-backbar-btn:focus-visible { outline: 2px solid #3B57D6; outline-offset: 2px; }
-:root .cu-ui .cu-backbar-note { color: var(--text-secondary, #64748B); font: 500 13px "Lexend", sans-serif; overflow-wrap: anywhere; }
+:root .cu-ui .cu-backbar-note { color: var(--text-secondary, #64748B); font: 500 13px var(--font-body); overflow-wrap: anywhere; }
 
 /* ---------- the agent title typing itself (Legal's, common; owner 2026-11-12) ---------- */
 .cu-tw { display: inline-grid; vertical-align: baseline; white-space: nowrap; max-width: 100%; }
@@ -265,7 +265,7 @@ body { background: var(--canvas); color: var(--text-primary); font-family: var(-
 
 /* one size, one layout for every agent title; no agent stylesheet can stack or shrink it (owner 2026-11-12) */
 html:root:root[class*="agent-"] .agent-root .cu-agent-title { display: inline-flex !important; align-items: center; gap: 10px;
-  font: 700 22px/28px "Space Grotesk", sans-serif !important; color: var(--text-primary, #0F172A); letter-spacing: -.01em; }
+  font: 700 22px/28px var(--font-display) !important; color: var(--text-primary, #0F172A); letter-spacing: -.01em; }
 html:root:root[class*="agent-"] .agent-root .cu-agent-logo { display: grid !important; }
 html:root:root[class*="agent-"] .agent-root .cu-tw { display: inline-grid !important; font: inherit !important; color: inherit; }
 html:root:root[class*="agent-"] .agent-root .cu-tw-typed { display: inline-flex !important; }
@@ -295,17 +295,17 @@ html:root:root[class*="agent-"] .agent-root .cu-frame-side { position: sticky; t
   gap: 16px; min-width: 0; height: calc(100vh - 104px); overflow-y: auto; padding: 20px 16px; background: #fff;
   border-right: 1px solid #E2E8F0; box-sizing: border-box; }
 html:root:root[class*="agent-"] .agent-root .cu-frame-title { margin: 0; padding: 0; font: inherit; }
-html:root:root[class*="agent-"] .agent-root .cu-frame-desc { margin: 8px 0 0 46px; color: #64748B; font: 500 13px/18px "Lexend", sans-serif; }
+html:root:root[class*="agent-"] .agent-root .cu-frame-desc { margin: 8px 0 0 46px; color: #64748B; font: 500 13px/18px var(--font-body); }
 html:root:root[class*="agent-"] .agent-root .cu-frame-case { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px;
   border-radius: 12px; background: #F5F8FF; box-shadow: inset 0 0 0 1px #E0E7FF; min-width: 0; }
-html:root:root[class*="agent-"] .agent-root .cu-frame-case small { color: #64748B; font: 600 10.5px/14px "Lexend", sans-serif;
+html:root:root[class*="agent-"] .agent-root .cu-frame-case small { color: #64748B; font: 600 12px/14px var(--font-body);
   letter-spacing: .08em; text-transform: uppercase; }
 html:root:root[class*="agent-"] .agent-root .cu-frame-case b { color: #1E1B4B; font: 700 14px/20px ui-monospace, "Cascadia Code", Consolas, monospace;
   overflow-wrap: anywhere; }
 html:root:root[class*="agent-"] .agent-root .cu-frame-nav { display: flex; flex-direction: column; gap: 4px; }
 html:root:root[class*="agent-"] .agent-root .cu-frame-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 0;
   margin: 0; padding: 10px 12px; border: 0; border-radius: 10px; background: none; box-shadow: none; color: #334155;
-  font: 600 14px/20px "Lexend", sans-serif; text-align: left; text-transform: none; cursor: pointer; }
+  font: 600 14px/20px var(--font-body); text-align: left; text-transform: none; cursor: pointer; }
 html:root:root[class*="agent-"] .agent-root .cu-frame-item svg { flex: none; width: 18px; height: 18px; color: #64748B; }
 html:root:root[class*="agent-"] .agent-root .cu-frame-item:hover:not(.is-on) { background: #F5F8FF; color: #253DA3; }
 html:root:root[class*="agent-"] .agent-root .cu-frame-item.is-on { background: linear-gradient(120deg, #1E1B4B, #312E81 55%, #3B57D6);

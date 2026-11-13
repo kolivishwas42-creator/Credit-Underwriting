@@ -157,7 +157,7 @@ function Concerns({ items, onRule }: { items: RuleRow[]; onRule?: (id: string) =
         : (
           <ul className="cu-r-concerns">
             {shown.map((r) => (
-              <li key={r.id} className={`is-${r.outcome}`}>
+              <li key={`${r.id}|${r.name}`} className={`is-${r.outcome}`}>
                 <button type="button" className="cu-r-side-btn" disabled={!onRule} onClick={() => onRule?.(r.id)}>
                   <b>{r.name}{r.outcome === "review" && <em>review</em>}</b>
                   {/* PROOF, like Strengths (owner 2026-11-12): the values compared, then the reason; a reason the
@@ -264,16 +264,7 @@ const words = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9
 /** The rule an AI point talks about: its id named in the point, else most of the rule name's words in the point. */
 export function ruleOfPoint(point: string, rules: RuleRow[]): RuleRow | undefined {
   const text = ` ${point.toLowerCase()} `;
-  // the rule's WHOLE name in the point, the longest first (owner 2026-11-12 UI pass: "Co-Applicant 1 has low risk"
-  // linked to "Applicant" -- short words are dropped below, so both names looked like "applicant")
-  const whole = (s: string) => ` ${s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
-  const said = whole(point);
-  const byName = [...rules].filter((r) => r.name.trim().length >= 3).sort((a, b) => b.name.length - a.name.length)
-    .find((r) => said.includes(whole(r.name)));
-  if (byName) return byName;
-  // its id named in the point -- after the whole names, and never inside a hyphenated word: an id like "APPLICANT"
-  // is also inside "co-applicant"
-  const byId = rules.find((r) => r.id.length >= 2 && new RegExp(`[^a-z0-9-]${r.id.toLowerCase().replace(/[^a-z0-9]/g, "\\$&")}[^a-z0-9-]`).test(text));
+  const byId = rules.find((r) => r.id.length >= 2 && new RegExp(`[^a-z0-9]${r.id.toLowerCase().replace(/[^a-z0-9]/g, "\\$&")}[^a-z0-9]`).test(text));
   if (byId) return byId;
   const have = new Set(words(point));
   let best: { rule: RuleRow; score: number; hits: number } | undefined;
@@ -328,8 +319,7 @@ export function keyNumbers(calcs: CalcRow[]): CalcRow[] {
   return out.slice(0, KEY_NUMBERS_MAX);
 }
 
-export function AiSummary({ points, source, loading, empty = "No summary yet.", rules = [], onRule, numbers = [], glance = [],
-  glanceTitle = "At a glance" }:
+export function AiSummary({ points, source, loading, empty = "No summary yet.", rules = [], onRule, numbers = [] }:
   SummaryProps & { rules?: RuleRow[]; onRule?: (id: string) => void; numbers?: CalcRow[] }) {
   const [all, setAll] = useState(false);
   // our own numbers lead each point: drop a "1." / "2)" the writer put in the text
@@ -379,22 +369,6 @@ export function AiSummary({ points, source, loading, empty = "No summary yet.", 
               : <div className="cu-r-empty">{empty}</div>}
         </div>
       </div>
-      {/* AT A GLANCE (owner 2026-11-12): every person and their level, right under the summary -- colour AND word */}
-      {glance.length > 0 && (
-        <div className="cu-r-glance" role="group" aria-label={glanceTitle}>
-          <span className="cu-r-glance-title">{glanceTitle}</span>
-          <ul>
-            {glance.map((g) => (
-              <li key={g.id} className={`cu-r-glance-chip is-${g.tone}`}>
-                <i aria-hidden="true" />
-                <span className="cu-r-glance-who">{g.who}</span>
-                <span className="cu-r-glance-name">{g.name}</span>
-                <b>{g.level}</b>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
       {numbers.length > 0 && (
         <dl className="cu-r-keynums" aria-label="Key numbers">
           {numbers.map((n, i) => (
@@ -445,7 +419,10 @@ function RuleCard({ rule, focused }: { rule: RuleRow; focused?: boolean }) {
   const pair = comparePair(rule.values);
   const rest = (rule.values ?? []).filter((v) => !pair || (v !== pair[0] && v !== pair[1]));
   const table = rule.table?.rows.length ? rule.table : undefined;
-  const more = rest.some((v) => filled(v.value)) || Boolean(table);
+  const cmp = rule.compare?.length ? rule.compare : undefined;
+  const recs = rule.records?.length ? rule.records : undefined;
+  const hidden = Boolean(rule.detailOnOpen && rule.detail);       // the message waits behind the click
+  const more = rest.some((v) => filled(v.value)) || Boolean(table) || Boolean(cmp) || Boolean(recs) || hidden;
   return (
     <div className={`cu-r-rule is-${rule.outcome}${open ? " is-open" : ""}${focused ? " is-focus" : ""}`} data-rule-id={rule.id}>
       <button type="button" className="cu-r-rule-row" onClick={() => more && setOpen((o) => !o)}
@@ -459,7 +436,7 @@ function RuleCard({ rule, focused }: { rule: RuleRow; focused?: boolean }) {
         </span>
         <span className="cu-r-rule-text">
           <b>{rule.name}</b>
-          {rule.detail && !(pair && repeatsPair(rule.detail, pair)) && <span>{rule.detail}</span>}
+          {rule.detail && !hidden && !(pair && repeatsPair(rule.detail, pair)) && <span>{rule.detail}</span>}
         </span>
         {pair && (
           <span className="cu-r-compare">
@@ -472,8 +449,31 @@ function RuleCard({ rule, focused }: { rule: RuleRow; focused?: boolean }) {
             ))}
           </span>
         )}
-        {more && <span className="cu-r-caret">{open ? "Hide values" : "Show values"}<Icon name="chevron" /></span>}
+        {more && <span className="cu-r-caret">{open ? (hidden ? "Hide details" : "Hide values") : (hidden ? "Show details" : "Show values")}<Icon name="chevron" /></span>}
       </button>
+      {open && hidden && <p className="cu-r-rule-msg">{rule.detail}</p>}
+      {open && recs && (
+        <div className="cu-r-recs">
+          {recs.map((rec, ri) => (
+            <dl key={ri} className="cu-r-rec">
+              {rec.map((l) => <Fragment key={l.label}><dt>{l.label}</dt><dd>{l.value}</dd></Fragment>)}
+            </dl>
+          ))}
+        </div>
+      )}
+      {open && cmp && (
+        <div className="cu-r-cmp-set">
+          {cmp.map((c, i) => (
+            <div key={i} className="cu-r-cmp-line">
+              <span className="cu-r-cmp-field">{c.field}</span>
+              <span className="cu-r-compare">
+                <span className={`cu-r-compare-cell is-${rule.outcome}`}><small>{rule.compareLabels?.[0] ?? "This application"}</small><b>{c.left || "—"}</b></span>
+                <span className="cu-r-compare-cell"><small>{rule.compareLabels?.[1] ?? "Compared with"}</small><b>{c.right || "—"}</b></span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       {open && table && (
         <table className="cu-r-rule-table">
           <thead><tr>{table.columns.map((c, i) => <th key={i} scope="col">{c}</th>)}</tr></thead>
@@ -536,7 +536,7 @@ export function RulesPanel({ rules, pageSize = RULES_PER_PAGE, empty = "No rules
         )}
       </div>
       {pager.rows.length
-        ? <div className="cu-r-rule-grid">{pager.rows.map((r) => <RuleCard key={r.id} rule={r} focused={lit === r.id} />)}</div>
+        ? <div className="cu-r-rule-grid">{pager.rows.map((r) => <RuleCard key={`${r.id}|${r.name}`} rule={r} focused={lit === r.id} />)}</div>
         : <div className="cu-r-empty">{empty}</div>}
       <Pagination pager={pager} noun="rules" fixedSize />
     </div>
@@ -760,7 +760,7 @@ function hasChildren(node: ReactNode): boolean {
    "sab ek me naa dikhe": under the header ONE section at a time -- Overview (the AI summary) · Rules · Calculations ·
    More details -- on a pill rail with counts and a red mark for what failed. Every pane stays mounted (only put away),
    so a filter or an opened rule survives a switch. */
-type Section = "overview" | "rules" | "calcs" | "details";
+type Section = string;     // "overview" | "rules" | "details" | an agent's own extra tab id
 interface Tab { id: Section; label: string; icon: string; count?: number; alert?: number }
 
 function SectionRail({ tabs, active, onPick, stuck, basic, onTop }: {
@@ -820,6 +820,8 @@ export function ResultPage({ basic, summary, rules: rulesProp, calculations, act
     tabs.push({ id: "rules", label: rules && hasCalcs ? "Rules & Calculations" : rules ? "Rules" : "Calculations",
       icon: "list", count: rules ? ruleRows.length : calcRows.length, alert: failed });
   }
+  // the agent's own tabs sit in the same rail, after Rules (e.g. Fraud: AML screening, PEP check ...)
+  for (const x of extraTabs) tabs.push({ id: x.id, label: x.label, icon: x.icon ?? "grid", count: x.count });
   if (extra && !detailsOpen) tabs.push({ id: "details", label: "More details", icon: "grid" });
   const [picked, setPicked] = useState<Section | null>(null);
   const active: Section = picked && tabs.some((t) => t.id === picked) ? picked : (tabs[0]?.id ?? "overview");
@@ -861,8 +863,6 @@ export function ResultPage({ basic, summary, rules: rulesProp, calculations, act
       {summary && (
         <div className={pane("overview")} {...paneProps("overview")}>
           <AiSummary {...summary} rules={ruleRows} onRule={onRule} numbers={keyNumbers(calcRows)} />
-          {/* the agent's own picture right under the summary (owner 2026-11-12: Crime's risk gauges) */}
-          {hasChildren(overview) && <div className="cu-r-overview-extra cu-r-agent">{overview}</div>}
         </div>
       )}
       {(rules || hasCalcs) && (
@@ -873,14 +873,18 @@ export function ResultPage({ basic, summary, rules: rulesProp, calculations, act
           </div>
         </div>
       )}
+      {extraTabs.map((x) => (
+        // every extra pane stays mounted (hidden when not chosen), so an expanded list survives a tab switch
+        <div key={x.id} className={pane(x.id)} {...paneProps(x.id)}>{x.content}</div>
+      ))}
       {extra && !detailsOpen && (
         <div className={pane("details")} {...paneProps("details")}>
           <div className="cu-r-card cu-r-details is-open" role="region" aria-label="More details">
-            <div className="cu-r-details-body cu-r-agent">{children}</div>
+            <div className="cu-r-details-body">{children}</div>
           </div>
         </div>
       )}
-      {extra && detailsOpen && <div className="cu-r-pane is-always cu-r-agent">{children}</div>}
+      {extra && detailsOpen && <div className="cu-r-pane is-always">{children}</div>}
       {actions && <ActionBar actions={actions} />}
     </div>
   );
