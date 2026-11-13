@@ -115,3 +115,9 @@ sets:
     names: { file: agents/docs_policy/config/reasons.yaml, path: "rule_names.{id}" }
     params:
       RULE-11: [file_rules.default.max_mb, file_rules.default.min_kb]
+
+# CUSTOM RULES (owner 2026-11-13: "add rule sab ke liye"): an officer's own rule on any value an agent shows under
+# Calculations, for these agents; kept in schema rule_settings (shared/api/custom_rules.py)
+custom_rules:
+  agents: [eligibility, dedupe, docs_policy, bank_verification, itr_verification, residence_office_verification,
+           crime_verification, legal_verification, property_valuation, collateral_verification, fraud_screening]
