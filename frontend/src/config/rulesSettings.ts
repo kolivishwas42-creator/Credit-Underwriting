@@ -60,9 +60,9 @@ export interface RulesSource {
   };
 }
 
-/** The Rules screen is built and ready but NOT shown yet (owner 2026-11-12: "frontend me nahi dikhana, ready rakho").
- *  true = every agent listed below gets "Rules settings" in its sidebar. */
-export const RULES_SETTINGS_VISIBLE = false;
+/** The Rules settings view (owner 2026-11-13: ON, "pura alag"): its own tab in the Overview sidebar (/rules), not
+ *  inside the agents. false = the tab is not shown. */
+export const RULES_SETTINGS_VISIBLE = true;
 
 const SEVERITY = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
 
@@ -173,6 +173,9 @@ export const RULES_SOURCES: Record<string, RulesSource> = {
 /** Words on the Rules screen (one place, not in the component). */
 export const RULES_WORDS = {
   menu: "Rules settings",
+  homeAgents: "Agents",
+  agentsTitle: "Agents",
+  savedInDb: "Changes are saved in the database and apply to the next check.",
   title: "Rules settings",
   subtitle: "Turn a rule on or off, or change its limits. Changes apply to the next check.",
   search: "Search rules",
@@ -206,5 +209,27 @@ export const RULES_WORDS = {
     reason_code: "Reason code",
     next_action: "Next action for the officer",
   } as Record<string, string>,
-  operators: { gt: "greater than", ge: "at least", lt: "less than", le: "at most", eq: "equal to" } as Record<string, string>,
+  operators: { gt: "greater than", ge: "at least", lt: "less than", le: "at most", eq: "equal to", ne: "not equal to" } as Record<string, string>,
+  /** rules per page on the Rules screen */
+  pageSize: 8,
+  /** CUSTOM RULES (owner 2026-11-13: "add rule sab ke liye") */
+  custom: {
+    title: "Custom rules",
+    help: "Your own rules on any value this agent shows under Calculations. They are saved in the database and appear in the agent's result beside its own rules.",
+    add: "Add custom rule",
+    empty: "No custom rules yet.",
+    remove: "Remove",
+    confirmRemove: (name: string) => `Remove the rule "${name}"?`,
+    fields: {
+      name: "Rule name (e.g. FOIR above 55%)",
+      field: "Value name, as shown in Calculations (e.g. FOIR)",
+      operator: "When the value is",
+      value: "Limit",
+      outcome: "Then the result is",
+      severity: "Severity",
+      rule_id: "Rule ID (starts with C, e.g. C_HIGH_FOIR)",
+    } as Record<string, string>,
+    outcomes: { review: "Review", fail: "Fail" } as Record<string, string>,
+    when: (field: string, op: string, value: number, outcome: string) => `When ${field} is ${op} ${value} → ${outcome}`,
+  },
 };

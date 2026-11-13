@@ -1,13 +1,45 @@
 import { useLayoutEffect } from "react";
 import { AGENTS, GROUP_NOTES, GROUPS } from "../../config/agents";
+import { RULES_SETTINGS_VISIBLE, RULES_WORDS } from "../../config/rulesSettings";
 import { Icon } from "./Icon";
+import { RulesConsole } from "./RulesConsole";
+
+export type HomeView = "agents" | "rules";
 
 /**
- * The landing view: the underwriting journey as a board — one column per stage (Application → Verification →
- * Property → Risk), its agents as cards. Fits one screen; clicking a card opens the agent.
+ * The landing view. A sidebar with its sections (owner 2026-11-13): AGENTS -- the underwriting journey as a board, one
+ * column per stage, its agents as cards -- and RULES SETTINGS, every agent's rules in one place apart from the agents.
  */
-export function Home({ onOpen }: { onOpen: (id: string) => void }) {
-  useLayoutEffect(() => { document.title = "Credit Underwriting"; }, []);
+export function Home({ onOpen, view = "agents", onView }: {
+  onOpen: (id: string) => void; view?: HomeView; onView?: (v: HomeView) => void;
+}) {
+  useLayoutEffect(() => { document.title = view === "rules" ? `${RULES_WORDS.title} · Credit Underwriting` : "Credit Underwriting"; }, [view]);
+  const tabs: { id: HomeView; label: string; icon: string }[] = [
+    { id: "agents", label: RULES_WORDS.homeAgents, icon: "grid" },
+    ...(RULES_SETTINGS_VISIBLE ? [{ id: "rules" as HomeView, label: RULES_WORDS.title, icon: "sliders" }] : []),
+  ];
+  const shown: HomeView = view === "rules" && RULES_SETTINGS_VISIBLE ? "rules" : "agents";
+  return (
+    <div className="cu-overview">
+      <aside className="cu-overview-side" aria-label="Overview sections">
+        <div className="cu-overview-side-head">Overview</div>
+        <div role="tablist" aria-orientation="vertical">
+          {tabs.map((t) => (
+            <button key={t.id} type="button" role="tab" aria-selected={shown === t.id}
+              className={`cu-overview-tab${shown === t.id ? " is-on" : ""}`} onClick={() => onView?.(t.id)}>
+              <Icon name={t.icon} /><span>{t.label}</span>
+            </button>
+          ))}
+        </div>
+      </aside>
+      <div className="cu-overview-main">
+        {shown === "rules" ? <RulesConsole /> : <AgentsBoard onOpen={onOpen} />}
+      </div>
+    </div>
+  );
+}
+
+function AgentsBoard({ onOpen }: { onOpen: (id: string) => void }) {
   return (
     <div className="cu-home">
       <div className="cu-home-head">
