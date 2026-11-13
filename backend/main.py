@@ -120,6 +120,8 @@ for _agent in AGENTS:
 
 # RULE SETTINGS (owner 2026-11-12): rule on / off, numbers and new rules for the agents whose rules live in the
 # versioned rule store -- shared/api/rule_settings.py, shared/config/rule_settings.yaml
+from shared.api.custom_rules import router as _custom_rules_router  # noqa: E402
 from shared.api.rule_settings import router as _rule_settings_router  # noqa: E402
 
+app.include_router(_custom_rules_router)          # first: /custom/... must not be read as a rule-set name
 app.include_router(_rule_settings_router)

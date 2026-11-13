@@ -2,21 +2,40 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RULES_SETTINGS_VISIBLE, RULES_SOURCES } from "../config/rulesSettings";
 import { AiSummary, ruleOfPoint } from "../shared/components/result/ResultPage";
-import { RulesSettings, hasRulesSettings } from "../shared/components/RulesSettings";
+import { Home } from "../shared/components/Home";
+import { RulesSettings } from "../shared/components/RulesSettings";
 import { baseOf, saveBody, savePath, toView } from "../shared/rules/rulesApi";
 
-// owner 2026-11-12: rules on / off and editable for every agent -- built, ready, not shown yet
+// owner 2026-11-12 / 13: rules on / off and editable for every agent -- its OWN section of the Overview, apart from
+// the agents
 describe("rules settings", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it("is ready but hidden until switched on in config", () => {
-    expect(RULES_SETTINGS_VISIBLE).toBe(false);
-    expect(hasRulesSettings("itr_verification")).toBe(false);
-    expect(hasRulesSettings("itr_verification", true)).toBe(true);
-    // every agent of the console has its rules here (11)
+  it("is on, and every agent of the console has its rules there (11)", () => {
+    expect(RULES_SETTINGS_VISIBLE).toBe(true);
     expect(Object.keys(RULES_SOURCES).sort()).toEqual(["bank_verification", "collateral_verification", "crime_verification",
       "dedupe", "docs_policy", "eligibility", "fraud_screening", "itr_verification", "legal_verification",
       "property_valuation", "residence_office_verification"]);
+  });
+
+  it("the Overview has a Rules settings tab; it lists the agents by stage and opens one's rules", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(String(url).includes("/custom/")
+      ? { rules: [{ id: "C_HIGH_FOIR", name: "FOIR above 55%", enabled: true, severity: "HIGH",
+          params: { field: "FOIR", operator: "gt", value: 55, outcome: "review" } }] }
+      : { rules: [{ id: "AGE", name: "Age limits", enabled: true, locked: false, params: { min_age: 21 } }], templates: {} }), { status: 200 })));
+    const onView = vi.fn();
+    const { rerender } = render(<Home onOpen={() => {}} view="agents" onView={onView} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Rules settings" }));
+    expect(onView).toHaveBeenCalledWith("rules");
+    rerender(<Home onOpen={() => {}} view="rules" onView={onView} />);
+    const list = screen.getByRole("navigation", { name: "Agents" });
+    expect(list.querySelectorAll(".cu-rules-agent")).toHaveLength(11);
+    fireEvent.click(screen.getByRole("button", { name: "Eligibility" }));
+    expect(await screen.findByText("Age limits")).toBeInTheDocument();
+    // every agent: its custom rules under its own, with Add custom rule
+    expect(await screen.findByText("FOIR above 55%")).toBeInTheDocument();
+    expect(screen.getByText("When FOIR is greater than 55 → Review")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "+ Add custom rule" })).toBeInTheDocument();
   });
 
   it("rule store sets: one set per group in the path, only changed numbers sent", () => {
@@ -116,5 +135,26 @@ describe("summary point -> rule, with role ids", () => {
   it("links a co-applicant point to the co-applicant even when the applicant's id is APPLICANT", () => {
     const rules = [{ id: "APPLICANT", name: "Applicant", outcome: "fail" as const }, { id: "CO_APPLICANT_1", name: "Co-Applicant 1", outcome: "fail" as const }];
     expect(ruleOfPoint("Co-Applicant 1 has a total of 4 cases found.", rules)?.id).toBe("CO_APPLICANT_1");
+  });
+});
+
+
+// custom rules on a result page: fire on the named Calculations value, pass when not met, grey when missing
+import { applyCustomRules, numberIn } from "../shared/rules/customRules";
+describe("custom rules on a result", () => {
+  const rule = (field: string, operator: string, value: number, outcome: "review" | "fail" = "review") =>
+    ({ id: "C_X", name: "x", enabled: true, severity: "HIGH", params: { field, operator, value, outcome } });
+  it("reads the number in a shown value", () => {
+    expect(numberIn("62.4%")).toBe(62.4);
+    expect(numberIn("₹1,20,000")).toBe(120000);
+    expect(numberIn("—")).toBeNull();
+  });
+  it("fires, passes, or says not evaluated", () => {
+    const calcs = [{ label: "FOIR", value: "62%" }, { label: "Cases found", value: 0 }];
+    expect(applyCustomRules([rule("foir", "gt", 55)], calcs)[0].outcome).toBe("review");
+    expect(applyCustomRules([rule("FOIR", "gt", 70, "fail")], calcs)[0].outcome).toBe("pass");
+    expect(applyCustomRules([rule("Cases found", "ge", 1, "fail")], calcs)[0].outcome).toBe("pass");
+    expect(applyCustomRules([rule("LTV", "gt", 80)], calcs)[0].outcome).toBe("na");
+    expect(applyCustomRules([{ ...rule("FOIR", "gt", 55), enabled: false }], calcs)).toEqual([]);
   });
 });

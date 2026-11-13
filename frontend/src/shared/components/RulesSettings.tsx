@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { RULES_SETTINGS_VISIBLE, RULES_SOURCES, RULES_WORDS as W } from "../../config/rulesSettings";
+import { usePagination } from "../hooks/usePagination";
 import { addRule, loadSet, saveRule, type RuleChange, type RuleView, type Template } from "../rules/rulesApi";
+import { CustomRulesPanel } from "./CustomRulesPanel";
 import { Icon } from "./Icon";
+import { Pagination } from "./Pagination";
 
 /**
  * THE COMMON RULES SCREEN (owner 2026-11-12): every agent's rules in one look -- on / off (a rule that sums the others
@@ -39,6 +42,8 @@ export function RulesSettings({ agent, onBack }: { agent: string; onBack?: () =>
     const q = query.trim().toLowerCase();
     return (rules ?? []).filter((r) => !q || `${r.name} ${r.code} ${r.description}`.toLowerCase().includes(q));
   }, [rules, query]);
+  // PAGES (owner 2026-11-13: "pagination bhi chahiye"): a long list is paged, not scrolled
+  const pager = usePagination(shown, W.pageSize);
 
   if (!src) return null;
   const onCount = (rules ?? []).filter((r) => r.enabled).length;
@@ -115,7 +120,7 @@ export function RulesSettings({ agent, onBack }: { agent: string; onBack?: () =>
       {rules && shown.length === 0 && <div className="cu-rules-empty">{W.empty}</div>}
 
       <ul className="cu-rules-list">
-        {shown.map((r) => {
+        {pager.rows.map((r) => {
           const d = drafts[r.key];
           const dirty = Boolean(d && (d.severity !== undefined || Object.keys(d.numbers ?? {}).length));
           return (
@@ -143,7 +148,9 @@ export function RulesSettings({ agent, onBack }: { agent: string; onBack?: () =>
                     <label>
                       <small>{W.severity}</small>
                       <select value={d?.severity ?? r.severity ?? ""} onChange={(e) => draft(r.key, { severity: e.target.value })}>
-                        {[...new Set([...(r.severity ? [r.severity] : []), ...src.severityChoices])].map((s) => (
+                        {/* the choices in the agent's own case ("critical" for ITR, "CRITICAL" elsewhere): never two of one */}
+                        {[...new Set([...(r.severity ? [r.severity] : []),
+                          ...src.severityChoices.map((s) => (r.severity && r.severity === r.severity.toLowerCase() ? s.toLowerCase() : s))])].map((s) => (
                           <option key={s} value={s}>{s}</option>
                         ))}
                       </select>
@@ -166,6 +173,8 @@ export function RulesSettings({ agent, onBack }: { agent: string; onBack?: () =>
           );
         })}
       </ul>
+      {shown.length > W.pageSize && <Pagination pager={pager} noun="rules" fixedSize />}
+      <CustomRulesPanel agent={agent} />
     </section>
   );
 }
